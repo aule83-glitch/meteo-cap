@@ -17,7 +17,7 @@ class WarningCreate(BaseModel):
     phenomenon: str
     params: Dict[str, Any] = {}
     counties: List[County] = []
-    polygon: Optional[List[List[float]]] = None  # [[lat, lon], ...]
+    polygon: Optional[List[List[float]]] = None
     onset: str
     expires: str
     headline: Optional[str] = None
@@ -27,6 +27,9 @@ class WarningCreate(BaseModel):
     sender_name: str = "IMGW-PIB Centrum Modelowania Meteorologicznego"
     altitude_from_m: Optional[float] = None
     altitude_to_m: Optional[float] = None
+    # --- Update/Cancel fields ---
+    msg_type: str = "Alert"          # Alert | Update | Cancel
+    references_id: Optional[str] = None   # ID ostrzeżenia które to aktualizuje
 
 
 class WarningDB(WarningCreate):
@@ -34,6 +37,8 @@ class WarningDB(WarningCreate):
     level: Optional[int] = None
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     cap_xml: Optional[str] = None
+    # Status derived fields
+    status: str = "pending"   # pending | active | expired | cancelled | updated
 
 
 class LevelCheckRequest(BaseModel):
@@ -48,4 +53,4 @@ class LevelCheckResponse(BaseModel):
 
 
 class SpatialQueryRequest(BaseModel):
-    polygon: List[List[float]]  # [[lat, lon], ...]
+    polygon: List[List[float]]

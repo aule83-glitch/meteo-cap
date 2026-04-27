@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function Header({ view, onViewChange, warningsCount }) {
+export default function Header({ view, onViewChange, warningsCount, activeCount, pendingCount }) {
   return (
     <header className="header">
       <div className="header-logo">
@@ -20,10 +20,8 @@ export default function Header({ view, onViewChange, warningsCount }) {
       <div className="header-spacer" />
 
       <nav className="header-nav">
-        <button
-          className={`header-nav-btn ${view === 'editor' ? 'active' : ''}`}
-          onClick={() => onViewChange('editor')}
-        >
+        <button className={`header-nav-btn ${view === 'editor' ? 'active' : ''}`}
+          onClick={() => onViewChange('editor')}>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <rect x="1" y="1" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
             <rect x="8" y="1" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
@@ -32,16 +30,26 @@ export default function Header({ view, onViewChange, warningsCount }) {
           </svg>
           Edytor
         </button>
-        <button
-          className={`header-nav-btn ${view === 'list' ? 'active' : ''}`}
-          onClick={() => onViewChange('list')}
-        >
+        <button className={`header-nav-btn ${view === 'list' ? 'active' : ''}`}
+          onClick={() => onViewChange('list')}>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <path d="M2 4h10M2 7h10M2 10h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
           </svg>
-          Ostrzeżenia
-          {warningsCount > 0 && (
-            <span className="nav-badge">{warningsCount}</span>
+          Historia
+          {warningsCount > 0 && <span className="nav-badge">{warningsCount}</span>}
+        </button>
+        <button className={`header-nav-btn ${view === 'status' ? 'active' : ''}`}
+          onClick={() => onViewChange('status')}>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.3"/>
+            <circle cx="7" cy="7" r="2" fill="currentColor" opacity={activeCount > 0 ? 1 : 0.3}/>
+          </svg>
+          Status
+          {activeCount > 0 && (
+            <span className="nav-badge" style={{background:'var(--warn-3)'}}>{activeCount}</span>
+          )}
+          {pendingCount > 0 && (
+            <span className="nav-badge" style={{background:'var(--accent-blue)',marginLeft:2}}>{pendingCount}</span>
           )}
         </button>
       </nav>

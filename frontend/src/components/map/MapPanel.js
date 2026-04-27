@@ -62,7 +62,7 @@ const TILE_LAYERS = [
   },
 ];
 
-export default function MapPanel({ onPolygonDrawn, selectedCounties, warnings, onClear }) {
+export default function MapPanel({ onPolygonDrawn, selectedCounties, warnings, onClear, onCountyToggle }) {
   const mapRef       = useRef(null);
   const leafletMap   = useRef(null);
   const drawnItems   = useRef(null);
@@ -170,6 +170,12 @@ export default function MapPanel({ onPolygonDrawn, selectedCounties, warnings, o
             `<b>${feature.properties.name}</b><br><span style="opacity:.7;font-size:10px">${feature.properties.voiv_name}</span>`,
             { className: 'map-county-tooltip', sticky: true }
           );
+          layer.on('click', () => {
+            // Toggle powiat po kliknięciu
+            if (onCountyToggle) {
+              onCountyToggle(feature.properties);
+            }
+          });
         },
       }).addTo(map);
 

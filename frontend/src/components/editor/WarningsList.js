@@ -22,6 +22,33 @@ const PHENOMENON_LABELS = {
 };
 
 export default function WarningsList({ warnings, onDelete, onStatusChange }) {
+  const handleDownloadPerCounty = async (id) => {
+    try {
+      const res = await axios.get(`${API}/warnings/${id}/xml?mode=per_county`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/zip' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `ostrzezenia_${id.slice(0,8)}.zip`);
+      document.body.appendChild(link); link.click(); link.remove();
+      window.URL.revokeObjectURL(url);
+      onStatusChange({ msg: 'ZIP per-powiat pobrany', type: 'success' });
+    } catch (e) {
+      onStatusChange({ msg: `Błąd: ${e.message}`, type: 'error' });
+    }
+  };
+
+  const handleCancel = async (id) => {
+    if (!window.confirm('Wydać komunikat CAP Cancel dla tego ostrzeżenia?')) return;
+    try {
+      await axios.post(`${API}/warnings/${id}/cancel`);
+      onStatusChange({ msg: 'Ostrzeżenie anulowane (CAP Cancel wydany)', type: 'success' });
+      // Odśwież — App.js ładuje ostrzeżenia automatycznie, ale daj znać
+      onDelete('__refresh__');
+    } catch (e) {
+      onStatusChange({ msg: `Błąd anulowania: ${e.message}`, type: 'error' });
+    }
+  };
+
   const handleDownload = async (id) => {
     try {
       const res = await axios.get(`${API}/warnings/${id}/xml`, {
@@ -111,27 +138,52 @@ export default function WarningsList({ warnings, onDelete, onStatusChange }) {
                 </div>
               )}
 
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 10 }}>
-                ID: {w.id?.slice(0, 16)}… · {formatDate(w.created_at)}
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 6,
+                display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{
+                  background: w.status === 'active' ? 'rgba(239,68,68,0.15)' :
+                              w.status === 'pending' ? 'rgba(59,130,246,0.15)' :
+                              w.status === 'cancelled' ? 'rgba(107,114,128,0.15)' : 'var(--bg-hover)',
+                  color: w.status === 'active' ? 'var(--warn-3)' :
+                         w.status === 'pending' ? 'var(--accent-blue)' :
+                         w.status === 'cancelled' ? 'var(--text-muted)' : 'var(--text-muted)',
+                  padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+                }}>
+                  {w.status === 'active' ? '● Aktywne' : w.status === 'pending' ? '○ Nadchodzące' :
+                   w.status === 'expired' ? '✓ Wygasłe' : w.status === 'cancelled' ? '✕ Anulowane' :
+                   w.status === 'updated' ? '↺ Zaktualizowane' : w.status}
+                </span>
+                <span
+                  title="Kliknij aby skopiować ID"
+                  style={{ cursor: 'pointer', textDecoration: 'underline dotted' }}
+                  onClick={() => { navigator.clipboard.writeText(w.id); onStatusChange({ msg: 'ID skopiowane', type: 'success' }); }}
+                >
+                  {w.id?.slice(0, 8)}…
+                </span>
+                <span>{formatDate(w.created_at)}</span>
               </div>
 
-              <div className="warning-card-actions">
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => handleDownload(w.id)}
-                  title="Pobierz CAP 1.2 XML"
-                >
+              <div className="warning-card-actions" style={{ flexWrap: 'wrap' }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => handleDownload(w.id)} title="Zbiorczy CAP XML">
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                     <path d="M6 1v7M3.5 5.5L6 8l2.5-2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
                     <path d="M1 9v1.5a.5.5 0 00.5.5h9a.5.5 0 00.5-.5V9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
                   </svg>
-                  Pobierz XML
+                  XML
                 </button>
-                <button
-                  className="btn btn-danger btn-sm"
-                  onClick={() => handleDelete(w.id)}
-                  title="Usuń ostrzeżenie"
-                >
+                <button className="btn btn-secondary btn-sm" onClick={() => handleDownloadPerCounty(w.id)} title="Per-powiat ZIP">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M3 1h4l3 3v7H3V1z" stroke="currentColor" strokeWidth="1.2"/>
+                    <path d="M7 1v3h3" stroke="currentColor" strokeWidth="1.2"/>
+                  </svg>
+                  ZIP
+                </button>
+                {w.status !== 'cancelled' && w.status !== 'expired' && (
+                  <button className="btn btn-danger btn-sm" onClick={() => handleCancel(w.id)} title="Anuluj ostrzeżenie (CAP Cancel)">
+                    ✕ Anuluj
+                  </button>
+                )}
+                <button className="btn btn-danger btn-sm" onClick={() => handleDelete(w.id)} title="Usuń z bazy">
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                     <path d="M2 3h8M5 3V2h2v1M4 3v7h4V3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>

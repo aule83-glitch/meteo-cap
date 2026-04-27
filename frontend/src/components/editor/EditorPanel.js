@@ -32,6 +32,8 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
   const [headline, setHeadline] = useState('');
   const [description, setDescription] = useState('');
   const [instruction, setInstruction] = useState('');
+  const [msgType, setMsgType] = useState('Alert');       // Alert | Update | Cancel
+  const [referencesId, setReferencesId] = useState(''); // ID ostrzeżenia do aktualizacji
   const [saving, setSaving] = useState(false);
   const levelTimer = useRef(null);
 
@@ -64,31 +66,28 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     setParams(prev => ({ ...prev, [key]: value }));
   }, []);
 
+  const resetForm = () => {
+    setHeadline('');
+    setDescription('');
+    setInstruction('');
+    setOnset(getISOLocal(0));
+    setExpires(getISOLocal(24 * 60));
+    setMsgType('Alert');
+    setReferencesId('');
+  };
+
   const handleSave = async () => {
     if (!level) {
       onStatusChange({ msg: 'Parametry nie spełniają kryteriów żadnego stopnia ostrzeżenia', type: 'error' });
       return;
     }
-
     setSaving(true);
     onStatusChange({ msg: 'Zapisywanie ostrzeżenia...', type: 'info' });
-
     try {
-      const payload = {
-        phenomenon,
-        params,
-        counties: selectedCounties,
-        polygon: drawnPolygon,
-        onset: new Date(onset).toISOString(),
-        expires: new Date(expires).toISOString(),
-        headline: headline || undefined,
-        description: description || undefined,
-        instruction: instruction || undefined,
-      };
-
-      const res = await axios.post(`${API}/warnings`, payload);
+      const res = await axios.post(`${API}/warnings`, buildPayload());
       onWarningCreated(res.data);
       onStatusChange({ msg: `Ostrzeżenie stopień ${res.data.level} — ${phenomenon.replace(/_/g, ' ')} zapisane`, type: 'success' });
+      resetForm();
     } catch (e) {
       onStatusChange({ msg: `Błąd zapisu: ${e.message}`, type: 'error' });
     } finally {
@@ -105,6 +104,8 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     headline: headline || undefined,
     description: description || undefined,
     instruction: instruction || undefined,
+    msg_type: msgType,
+    references_id: referencesId || undefined,
   });
 
   const downloadFile = (blob, filename, type) => {
@@ -247,6 +248,36 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
             }
             return null;
           })}
+        </div>
+
+        {/* Typ wiadomości */}
+        <div className="form-section">
+          <div className="form-section-label">Typ komunikatu CAP</div>
+          <div style={{ display: 'flex', gap: 6, marginBottom: msgType !== 'Alert' ? 10 : 0 }}>
+            {['Alert', 'Update', 'Cancel'].map(t => (
+              <button key={t} onClick={() => setMsgType(t)}
+                style={{
+                  flex: 1, padding: '7px 0', borderRadius: 'var(--radius-md)',
+                  border: '1px solid ' + (msgType === t ? 'var(--accent-blue)' : 'var(--border)'),
+                  background: msgType === t ? 'rgba(59,130,246,0.15)' : 'var(--bg-elevated)',
+                  color: msgType === t ? 'var(--text-accent)' : 'var(--text-muted)',
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  fontFamily: 'var(--font-display)',
+                }}>
+                {t === 'Alert' ? '🆕 Alert' : t === 'Update' ? '🔄 Update' : '❌ Cancel'}
+              </button>
+            ))}
+          </div>
+          {msgType !== 'Alert' && (
+            <div className="form-input-group">
+              <label className="form-input-label">ID ostrzeżenia do {msgType === 'Update' ? 'aktualizacji' : 'anulowania'}</label>
+              <input type="text" className="form-input"
+                placeholder="np. a3f2bc1d-... (skopiuj z listy ostrzeżeń)"
+                value={referencesId}
+                onChange={e => setReferencesId(e.target.value)}
+              />
+            </div>
+          )}
         </div>
 
         {/* Time range */}
