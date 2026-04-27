@@ -96,46 +96,48 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     }
   };
 
-  const handleDownloadXML = async () => {
+  const buildPayload = () => ({
+    phenomenon, params,
+    counties: selectedCounties,
+    polygon: drawnPolygon,
+    onset: new Date(onset).toISOString(),
+    expires: new Date(expires).toISOString(),
+    headline: headline || undefined,
+    description: description || undefined,
+    instruction: instruction || undefined,
+  });
+
+  const downloadFile = (blob, filename, type) => {
+    const url = window.URL.createObjectURL(new Blob([blob], { type }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadXML = async (mode = 'collective') => {
     if (!level) {
-      onStatusChange({ msg: 'Najpierw zapisz ostrzeżenie', type: 'error' });
+      onStatusChange({ msg: 'Parametry nie spełniają kryteriów ostrzeżenia', type: 'error' });
       return;
     }
-
-    // First save, then download
     setSaving(true);
     try {
-      const payload = {
-        phenomenon,
-        params,
-        counties: selectedCounties,
-        polygon: drawnPolygon,
-        onset: new Date(onset).toISOString(),
-        expires: new Date(expires).toISOString(),
-        headline: headline || undefined,
-        description: description || undefined,
-        instruction: instruction || undefined,
-      };
-
-      const res = await axios.post(`${API}/warnings`, payload);
+      const res = await axios.post(`${API}/warnings`, buildPayload());
       onWarningCreated(res.data);
-
-      // Download XML
-      const xmlRes = await axios.get(`${API}/warnings/${res.data.id}/xml`, {
-        responseType: 'blob',
-      });
-      const url = window.URL.createObjectURL(new Blob([xmlRes.data], { type: 'application/xml' }));
-      const link = document.createElement('a');
-      link.href = url;
+      const { id, level: lvl } = res.data;
       const ph = phenomenon;
-      const lvl = res.data.level;
-      link.setAttribute('download', `ostrzezenie_${ph}_st${lvl}_${res.data.id.slice(0,8)}.xml`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-
-      onStatusChange({ msg: `Plik XML CAP 1.2 pobrany pomyślnie`, type: 'success' });
+      if (mode === 'per_county') {
+        const zipRes = await axios.get(`${API}/warnings/${id}/xml?mode=per_county`, { responseType: 'blob' });
+        downloadFile(zipRes.data, `ostrzezenia_${ph}_st${lvl}_${id.slice(0,8)}.zip`, 'application/zip');
+        onStatusChange({ msg: `ZIP z ${selectedCounties.length} plikami CAP pobrany`, type: 'success' });
+      } else {
+        const xmlRes = await axios.get(`${API}/warnings/${id}/xml?mode=collective`, { responseType: 'blob' });
+        downloadFile(xmlRes.data, `ostrzezenie_${ph}_st${lvl}_${id.slice(0,8)}.xml`, 'application/xml');
+        onStatusChange({ msg: 'Plik XML CAP 1.2 pobrany pomyślnie', type: 'success' });
+      }
     } catch (e) {
       onStatusChange({ msg: `Błąd generowania XML: ${e.message}`, type: 'error' });
     } finally {
@@ -311,14 +313,9 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
 
       {/* Footer actions */}
       <div className="editor-footer">
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          <button
-            className="btn btn-secondary"
-            style={{ flex: 1 }}
-            onClick={handleSave}
-            disabled={saving || !level}
-            title={!level ? 'Parametry nie spełniają kryteriów ostrzeżenia' : 'Zapisz ostrzeżenie'}
-          >
+        <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+          <button className="btn btn-secondary" style={{ flex: 1 }}
+            onClick={handleSave} disabled={saving || !level}>
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M2 2h8l2 2v8a1 1 0 01-1 1H3a1 1 0 01-1-1V2z" stroke="currentColor" strokeWidth="1.2"/>
               <rect x="4" y="8" width="6" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.2"/>
@@ -326,26 +323,26 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
             </svg>
             Zapisz
           </button>
-          <button
-            className="btn btn-primary"
-            style={{ flex: 2 }}
-            onClick={handleDownloadXML}
-            disabled={saving || !level}
-            title={!level ? 'Parametry nie spełniają kryteriów ostrzeżenia' : 'Zapisz i pobierz CAP 1.2 XML'}
-          >
-            {saving ? (
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ animation: 'spin 1s linear infinite' }}>
-                <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="20" strokeDashoffset="5"/>
-              </svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M1 10v2a1 1 0 001 1h10a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-              </svg>
-            )}
-            Zapisz i pobierz CAP XML
+          <button className="btn btn-primary" style={{ flex: 2 }}
+            onClick={() => handleDownloadXML('collective')} disabled={saving || !level}
+            title="Jeden plik XML dla całego obszaru">
+            {saving
+              ? <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{animation:'spin 1s linear infinite'}}><circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="20" strokeDashoffset="5"/></svg>
+              : <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/><path d="M1 10v2a1 1 0 001 1h10a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
+            }
+            Zbiorczy XML
           </button>
         </div>
+        <button className="btn btn-secondary" style={{ width:'100%', marginBottom: 6 }}
+          onClick={() => handleDownloadXML('per_county')} disabled={saving || !level || selectedCounties.length === 0}
+          title="Osobny plik XML dla każdego powiatu — format IMGW">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M3 1h5l3 3v9H3V1z" stroke="currentColor" strokeWidth="1.2"/>
+            <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2"/>
+            <path d="M5 7h4M5 9.5h2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+          </svg>
+          ZIP — per powiat ({selectedCounties.length} plików)
+        </button>
         {!level && (
           <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', fontFamily: 'var(--font-mono)' }}>
             ↑ Dostosuj parametry aby aktywować ostrzeżenie
