@@ -1,0 +1,46 @@
+
+services:
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: meteocap-backend
+    restart: unless-stopped
+    volumes:
+      - warnings-data:/data
+      # UWAGA: NIE montuj ./backend/app tutaj w produkcji.
+      # Hot-reload volume jest tylko w docker-compose.dev.yml
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - meteocap-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s   # Dłuższy czas na zimny start Pythona
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: meteocap-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_started   # Nie czekaj na healthy — nginx i tak proxy-uje
+    networks:
+      - meteocap-net
+
+volumes:
+  warnings-data:
+    name: meteocap-warnings
+
+networks:
+  meteocap-net:
+    name: meteocap-network
+    driver: bridge

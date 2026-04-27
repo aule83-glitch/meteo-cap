@@ -1,0 +1,527 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+  <link rel="hub" href="https://pubsubhubbub.appspot.com/"/>
+  <link type="application/atom+xml" rel="self" href="https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-lithuania"/>
+  <link type="text/html" rel="alternate" href="https://meteoalarm.org"/>
+  <rights>Copyright © 2026 MeteoAlarm.Org. Licensed under terms equivalent to CC BY 4.0, with additional requirements for redistributing outlined in our Terms and Conditions.</rights>
+  <generator>MeteoAlarm Producer Server</generator>
+  <logo>https://feeds.meteoalarm.org/images/logo.svg</logo>
+  <author>
+    <name>meteoalarm.org</name>
+    <uri>https://meteoalarm.org</uri>
+    <email>meteoalarm@geosphere.at</email>
+  </author>
+  <id>tag:meteoalarm.org,2021-02-19:LT</id>
+  <title>MeteoAlarm - Alerting Europe for Extreme Weather</title>
+  <updated>2026-04-26T18:05:31.579853Z</updated>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT801</value>
+    </cap:geocode>
+    <link title="South Eastern Baltic, Curonian Lagoon" href="https://meteoalarm.org?geocode=EMMA_ID:LT801" hreflang="en"/>
+    <cap:areaDesc>South Eastern Baltic, Curonian Lagoon</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:38:15+00:00</cap:sent>
+    <cap:expires>2026-04-27T21:29:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:38:15+00:00</cap:effective>
+    <cap:onset>2026-04-27T10:30:00+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Future</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426123815__000</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/16113238-68e3-47a1-b9ea-e8c848005dc6"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:38:15Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/16113238-68e3-47a1-b9ea-e8c848005dc6?index_info=1&amp;index_area=0&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - South Eastern Baltic, Curonian Lagoon</title>
+    <updated>2026-04-26T09:38:15Z</updated>
+  </entry>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT801</value>
+    </cap:geocode>
+    <link title="South Eastern Baltic, Curonian Lagoon" href="https://meteoalarm.org?geocode=EMMA_ID:LT801" hreflang="en"/>
+    <cap:areaDesc>South Eastern Baltic, Curonian Lagoon</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:38:15+00:00</cap:sent>
+    <cap:expires>2026-04-26T14:59:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:38:15+00:00</cap:effective>
+    <cap:onset>2026-04-26T09:38:14+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Immediate</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426123815__001</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/77ba6e01-e37e-41d2-b12f-8f0e96364e33"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:38:15Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/77ba6e01-e37e-41d2-b12f-8f0e96364e33?index_info=1&amp;index_area=0&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - South Eastern Baltic, Curonian Lagoon</title>
+    <updated>2026-04-26T09:38:15Z</updated>
+  </entry>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT006</value>
+    </cap:geocode>
+    <link title="Šiauliai county" href="https://meteoalarm.org?geocode=EMMA_ID:LT006" hreflang="en"/>
+    <cap:areaDesc>Šiauliai county</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:11:57+00:00</cap:sent>
+    <cap:expires>2026-04-26T20:29:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:11:57+00:00</cap:effective>
+    <cap:onset>2026-04-26T09:11:56+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Immediate</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426121157_01_001</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:11:57Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0?index_info=1&amp;index_area=9&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - Šiauliai county</title>
+    <updated>2026-04-26T09:11:57Z</updated>
+  </entry>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT010</value>
+    </cap:geocode>
+    <link title="Vilnius county" href="https://meteoalarm.org?geocode=EMMA_ID:LT010" hreflang="en"/>
+    <cap:areaDesc>Vilnius county</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:11:57+00:00</cap:sent>
+    <cap:expires>2026-04-26T20:29:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:11:57+00:00</cap:effective>
+    <cap:onset>2026-04-26T09:11:56+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Immediate</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426121157_01_001</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:11:57Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0?index_info=1&amp;index_area=8&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - Vilnius county</title>
+    <updated>2026-04-26T09:11:57Z</updated>
+  </entry>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT009</value>
+    </cap:geocode>
+    <link title="Utena county" href="https://meteoalarm.org?geocode=EMMA_ID:LT009" hreflang="en"/>
+    <cap:areaDesc>Utena county</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:11:57+00:00</cap:sent>
+    <cap:expires>2026-04-26T20:29:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:11:57+00:00</cap:effective>
+    <cap:onset>2026-04-26T09:11:56+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Immediate</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426121157_01_001</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:11:57Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0?index_info=1&amp;index_area=7&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - Utena county</title>
+    <updated>2026-04-26T09:11:57Z</updated>
+  </entry>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT008</value>
+    </cap:geocode>
+    <link title="Telšiai county" href="https://meteoalarm.org?geocode=EMMA_ID:LT008" hreflang="en"/>
+    <cap:areaDesc>Telšiai county</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:11:57+00:00</cap:sent>
+    <cap:expires>2026-04-26T20:29:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:11:57+00:00</cap:effective>
+    <cap:onset>2026-04-26T09:11:56+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Immediate</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426121157_01_001</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:11:57Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0?index_info=1&amp;index_area=6&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - Telšiai county</title>
+    <updated>2026-04-26T09:11:57Z</updated>
+  </entry>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT007</value>
+    </cap:geocode>
+    <link title="Tauragė county" href="https://meteoalarm.org?geocode=EMMA_ID:LT007" hreflang="en"/>
+    <cap:areaDesc>Tauragė county</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:11:57+00:00</cap:sent>
+    <cap:expires>2026-04-26T20:29:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:11:57+00:00</cap:effective>
+    <cap:onset>2026-04-26T09:11:56+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Immediate</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426121157_01_001</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:11:57Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0?index_info=1&amp;index_area=5&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - Tauragė county</title>
+    <updated>2026-04-26T09:11:57Z</updated>
+  </entry>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT005</value>
+    </cap:geocode>
+    <link title="Panevėžys county" href="https://meteoalarm.org?geocode=EMMA_ID:LT005" hreflang="en"/>
+    <cap:areaDesc>Panevėžys county</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:11:57+00:00</cap:sent>
+    <cap:expires>2026-04-26T20:29:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:11:57+00:00</cap:effective>
+    <cap:onset>2026-04-26T09:11:56+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Immediate</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426121157_01_001</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:11:57Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0?index_info=1&amp;index_area=4&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - Panevėžys county</title>
+    <updated>2026-04-26T09:11:57Z</updated>
+  </entry>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT004</value>
+    </cap:geocode>
+    <link title="Marijampolė county" href="https://meteoalarm.org?geocode=EMMA_ID:LT004" hreflang="en"/>
+    <cap:areaDesc>Marijampolė county</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:11:57+00:00</cap:sent>
+    <cap:expires>2026-04-26T20:29:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:11:57+00:00</cap:effective>
+    <cap:onset>2026-04-26T09:11:56+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Immediate</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426121157_01_001</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:11:57Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0?index_info=1&amp;index_area=3&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - Marijampolė county</title>
+    <updated>2026-04-26T09:11:57Z</updated>
+  </entry>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT003</value>
+    </cap:geocode>
+    <link title="Klaipėda county" href="https://meteoalarm.org?geocode=EMMA_ID:LT003" hreflang="en"/>
+    <cap:areaDesc>Klaipėda county</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:11:57+00:00</cap:sent>
+    <cap:expires>2026-04-26T20:29:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:11:57+00:00</cap:effective>
+    <cap:onset>2026-04-26T09:11:56+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Immediate</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426121157_01_001</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:11:57Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0?index_info=1&amp;index_area=2&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - Klaipėda county</title>
+    <updated>2026-04-26T09:11:57Z</updated>
+  </entry>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT002</value>
+    </cap:geocode>
+    <link title="Kaunas county" href="https://meteoalarm.org?geocode=EMMA_ID:LT002" hreflang="en"/>
+    <cap:areaDesc>Kaunas county</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:11:57+00:00</cap:sent>
+    <cap:expires>2026-04-26T20:29:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:11:57+00:00</cap:effective>
+    <cap:onset>2026-04-26T09:11:56+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Immediate</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426121157_01_001</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:11:57Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0?index_info=1&amp;index_area=1&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - Kaunas county</title>
+    <updated>2026-04-26T09:11:57Z</updated>
+  </entry>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT001</value>
+    </cap:geocode>
+    <link title="Alytus county" href="https://meteoalarm.org?geocode=EMMA_ID:LT001" hreflang="en"/>
+    <cap:areaDesc>Alytus county</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:11:57+00:00</cap:sent>
+    <cap:expires>2026-04-26T20:29:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:11:57+00:00</cap:effective>
+    <cap:onset>2026-04-26T09:11:56+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Immediate</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426121157_01_001</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:11:57Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/bfc14cc6-51f8-4f10-b6b1-8f4c49a99cc0?index_info=1&amp;index_area=0&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - Alytus county</title>
+    <updated>2026-04-26T09:11:57Z</updated>
+  </entry>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT010</value>
+    </cap:geocode>
+    <link title="Vilnius county" href="https://meteoalarm.org?geocode=EMMA_ID:LT010" hreflang="en"/>
+    <cap:areaDesc>Vilnius county</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:11:57+00:00</cap:sent>
+    <cap:expires>2026-04-27T17:59:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:11:57+00:00</cap:effective>
+    <cap:onset>2026-04-26T21:00:00+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Future</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426121157_01_000</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/4c3dfc4d-a666-4ad1-90bb-415adcd780f2"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:11:57Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/4c3dfc4d-a666-4ad1-90bb-415adcd780f2?index_info=1&amp;index_area=4&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - Vilnius county</title>
+    <updated>2026-04-26T09:11:57Z</updated>
+  </entry>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT009</value>
+    </cap:geocode>
+    <link title="Utena county" href="https://meteoalarm.org?geocode=EMMA_ID:LT009" hreflang="en"/>
+    <cap:areaDesc>Utena county</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:11:57+00:00</cap:sent>
+    <cap:expires>2026-04-27T17:59:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:11:57+00:00</cap:effective>
+    <cap:onset>2026-04-26T21:00:00+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Future</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426121157_01_000</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/4c3dfc4d-a666-4ad1-90bb-415adcd780f2"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:11:57Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/4c3dfc4d-a666-4ad1-90bb-415adcd780f2?index_info=1&amp;index_area=3&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - Utena county</title>
+    <updated>2026-04-26T09:11:57Z</updated>
+  </entry>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT005</value>
+    </cap:geocode>
+    <link title="Panevėžys county" href="https://meteoalarm.org?geocode=EMMA_ID:LT005" hreflang="en"/>
+    <cap:areaDesc>Panevėžys county</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:11:57+00:00</cap:sent>
+    <cap:expires>2026-04-27T17:59:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:11:57+00:00</cap:effective>
+    <cap:onset>2026-04-26T21:00:00+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Future</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426121157_01_000</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/4c3dfc4d-a666-4ad1-90bb-415adcd780f2"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:11:57Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/4c3dfc4d-a666-4ad1-90bb-415adcd780f2?index_info=1&amp;index_area=2&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - Panevėžys county</title>
+    <updated>2026-04-26T09:11:57Z</updated>
+  </entry>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT002</value>
+    </cap:geocode>
+    <link title="Kaunas county" href="https://meteoalarm.org?geocode=EMMA_ID:LT002" hreflang="en"/>
+    <cap:areaDesc>Kaunas county</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:11:57+00:00</cap:sent>
+    <cap:expires>2026-04-27T17:59:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:11:57+00:00</cap:effective>
+    <cap:onset>2026-04-26T21:00:00+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Future</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426121157_01_000</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/4c3dfc4d-a666-4ad1-90bb-415adcd780f2"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:11:57Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/4c3dfc4d-a666-4ad1-90bb-415adcd780f2?index_info=1&amp;index_area=1&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - Kaunas county</title>
+    <updated>2026-04-26T09:11:57Z</updated>
+  </entry>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>LT001</value>
+    </cap:geocode>
+    <link title="Alytus county" href="https://meteoalarm.org?geocode=EMMA_ID:LT001" hreflang="en"/>
+    <cap:areaDesc>Alytus county</cap:areaDesc>
+    <cap:event>Dangerous wind</cap:event>
+    <cap:sent>2026-04-26T09:11:57+00:00</cap:sent>
+    <cap:expires>2026-04-27T17:59:59+00:00</cap:expires>
+    <cap:effective>2026-04-26T09:11:57+00:00</cap:effective>
+    <cap:onset>2026-04-26T21:00:00+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Future</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.440.0.LT.260426121157_01_000</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/4c3dfc4d-a666-4ad1-90bb-415adcd780f2"/>
+    <link title="Lithuania" rel="related" href="https://meteoalarm.org?region=LT" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-04-26T09:11:57Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-lithuania/4c3dfc4d-a666-4ad1-90bb-415adcd780f2?index_info=1&amp;index_area=0&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for Lithuania - Alytus county</title>
+    <updated>2026-04-26T09:11:57Z</updated>
+  </entry>
+</feed>
