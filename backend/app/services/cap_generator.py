@@ -184,6 +184,10 @@ def _build_cap_xml(warning: dict, counties_override=None) -> str:
         headline_en, area_desc_en
     )
 
+    # Dodaj elewację do obu bloków info
+    for info_el in alert.findall("info"):
+        _add_elevation(info_el, warning)
+
     raw = tostring(alert, encoding="unicode")
     return parseString(raw).toprettyxml(indent="  ", encoding=None)
 

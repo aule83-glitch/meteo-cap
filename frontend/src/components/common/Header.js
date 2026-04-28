@@ -52,6 +52,14 @@ export default function Header({ view, onViewChange, warningsCount, activeCount,
             <span className="nav-badge" style={{background:'var(--accent-blue)',marginLeft:2}}>{pendingCount}</span>
           )}
         </button>
+        <button className={`header-nav-btn ${view === 'settings' ? 'active' : ''}`}
+          onClick={() => onViewChange('settings')}>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="7" cy="7" r="2" stroke="currentColor" strokeWidth="1.2"/>
+            <path d="M7 1v2M7 11v2M1 7h2M11 7h2M2.9 2.9l1.4 1.4M9.7 9.7l1.4 1.4M2.9 11.1l1.4-1.4M9.7 4.3l1.4-1.4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+          </svg>
+          Ustawienia
+        </button>
       </nav>
     </header>
   );

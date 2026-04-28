@@ -109,3 +109,53 @@ Dlatego planowane jako **opcjonalna warstwa** (toggle w UI).
 | Spatial join po centroidach | Brak pełnych poligonów w szybkim query | v2.0 ST_Intersects |
 | Ostrzeżenia w pamięci (utrata po restart) | SQLite flat file | v2.0 PostgreSQL |
 | Brak concurrent editing | Brak backendu sesji | v2.2 |
+---
+
+## Wersja 3.0 — Nowcasting Integration
+
+### Warstwy danych real-time
+
+**Radar IMGW** (HDF5/NetCDF → WMS)
+- [ ] Tile server (GeoServer/MapServer) jako źródło WMS
+- [ ] Warstwa radarowa w Leaflet (`L.tileLayer.wms`)
+- [ ] Animacja sekwencji radarowych (ostatnie N skanów)
+- [ ] Kontrolka czasu (player) do przewijania animacji
+
+**Wyładowania atmosferyczne**
+- [ ] Endpoint pollingowy lub WebSocket (odświeżanie co 1 min)
+- [ ] Markery wyładowań z wiekiem (kolor = czas od uderzenia)
+- [ ] Filtr: ostatnie 10/30/60 minut
+
+**Auto-ostrzeżenia nowcastingowe**
+- [ ] API przyjmujące propozycje ostrzeżeń z systemu nowcastingowego
+- [ ] Widok "Do zatwierdzenia" — lista auto-alertów czekających na weryfikację
+- [ ] Workflow: system generuje → synoptyk weryfikuje → klik "Zatwierdź i opublikuj" → CAP
+- [ ] Parametry auto-alertu jako wartości wstępne w edytorze (edytowalne)
+
+---
+
+## Wersja 3.1 — Analiza historyczna
+
+- [ ] Overlay przebiegów radarowych do porównania z wydanymi ostrzeżeniami
+- [ ] Statystyki trafności ostrzeżeń (ile pokryło się z obserwacjami)
+- [ ] Eksport historii do CSV/Excel
+
+---
+
+## Infrastruktura docelowa (produkcja)
+
+Docelowe środowisko to **Linux server + Docker Engine** (nie Docker Desktop):
+
+```
+Serwer Linux (VM lub fizyczny, np. RHEL/Ubuntu)
+├── Docker Engine (apt install docker.io)
+├── docker-compose.yml
+│   ├── meteocap-backend   (FastAPI + Python)
+│   ├── meteocap-frontend  (nginx serving React)
+│   └── meteocap-db        (PostgreSQL + PostGIS)  ← v2.0
+├── nginx (host) — reverse proxy, SSL, integracja AD
+└── /data/ — volume z ostrzeżeniami i konfiguracją
+```
+
+Docker Desktop (Windows) tylko do developmentu. Na produkcji Linux + Docker Engine
+eliminuje problemy z politykami domenowymi AD.

@@ -13,6 +13,8 @@ services:
       # Hot-reload volume jest tylko w docker-compose.dev.yml
     environment:
       - PYTHONUNBUFFERED=1
+      # Ustaw aby włączyć autoryzację API key (zostaw pustą = wyłączona):
+      - METEOCAP_API_KEY=
     networks:
       - meteocap-net
     healthcheck:
