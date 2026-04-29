@@ -6,6 +6,7 @@ import ParamRadio from './ParamRadio';
 import ParamCheckbox from './ParamCheckbox';
 import WindDirectionPicker from './WindDirectionPicker';
 import LevelBadge from './LevelBadge';
+import { getDraft, setDraft, resetDraft } from '../../utils/editorDraft';
 
 const API = import.meta.env.VITE_API_URL || '/api';
 
@@ -83,40 +84,71 @@ function XmlPreviewModal({ xml, onClose }) {
   );
 }
 
-export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningCreated, onStatusChange, warnings = [] }) {
-  const [phenomenon, setPhenomenon] = useState('silny_wiatr');
-  const [params, setParams] = useState(() => getDefaultParams('silny_wiatr'));
+export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningCreated, onStatusChange, warnings = [], onLoadCounties }) {
+  // Inicjalizacja ze zapisanego draftu (persystencja przy zmianie zakładki)
+  const _d = getDraft();
+
+  const [phenomenon, setPhenomenon] = useState(_d.phenomenon || 'silny_wiatr');
+  const [params, setParams] = useState(() => {
+    if (_d.params) return _d.params;
+    return getDefaultParams(_d.phenomenon || 'silny_wiatr');
+  });
   const [level, setLevel] = useState(null);
-  const [onset, setOnset] = useState(() => getISOLocal(0));
-  const [expires, setExpires] = useState(() => getISOLocal(24 * 60));
-  const [headline, setHeadline] = useState('');
-  const [description, setDescription] = useState('');
-  const [instruction, setInstruction] = useState('');
-  const [msgType, setMsgType] = useState('Alert');       // Alert | Update | Cancel
-  const [referencesId, setReferencesId] = useState('');
+  const [onset, setOnset] = useState(() => _d.onset || getISOLocal(0));
+  const [expires, setExpires] = useState(() => _d.expires || getISOLocal(24 * 60));
+  const [headline, setHeadline] = useState(_d.headline || '');
+  const [description, setDescription] = useState(_d.description || '');
+  const [impacts, setImpacts]         = useState(_d.impacts || '');
+  const [instruction, setInstruction] = useState(_d.instruction || '');
+  const [msgType, setMsgType] = useState(_d.msgType || 'Alert');
+  const [referencesId, setReferencesId] = useState(_d.referencesId || '');
   const [previewXml, setPreviewXml]       = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [templates, setTemplates]         = useState([]);
-  const [showTemplates, setShowTemplates] = useState(false);
-  const [altFrom, setAltFrom]             = useState('');  // elewacja od (m)
-  const [altTo, setAltTo]                 = useState('');  // elewacja do (m)
-  const fileInputRef                       = useRef(null); // ID ostrzeżenia do aktualizacji
+  const [presets, setPresets]             = useState(() => {
+    try { return JSON.parse(localStorage.getItem('meteocap_presets') || '[]'); }
+    catch { return []; }
+  });
+  const [showPresets, setShowPresets]     = useState(false);
+  const [presetName, setPresetName]       = useState('');
+  const [altFrom, setAltFrom]             = useState(_d.altFrom || '');
+  const [altTo, setAltTo]                 = useState(_d.altTo || '');
+  const fileInputRef                       = useRef(null);
   const [saving, setSaving] = useState(false);
+  const [imgwImporting, setImgwImporting] = useState(false);
+  const [imgwPreview, setImgwPreview]     = useState(null); // null | {warnings, count, skipped}
   const levelTimer = useRef(null);
+
+  // Śledź czy użytkownik ręcznie edytował pola treści
+  const descriptionUserEdited = useRef(false);
+  const instructionUserEdited = useRef(false);
+  const impactsUserEdited     = useRef(false);
+  const lastDefaultDescription = useRef('');
+  const lastDefaultInstruction = useRef('');
+  const lastDefaultImpacts     = useRef('');
 
   // Wczytaj szablony
   useEffect(() => {
-    axios.get(`${API}/templates`)
-      .then(r => setTemplates(r.data.templates || []))
-      .catch(() => {});
+    // Presety są w localStorage — nie potrzeba API
   }, []);
+
+  // Zapisuj draft przy każdej zmianie — persystencja przy przełączaniu zakładek
+  useEffect(() => {
+    setDraft({
+      phenomenon, params, onset, expires,
+      headline, description, impacts, instruction,
+      msgType, referencesId, altFrom, altTo,
+    });
+  }, [phenomenon, params, onset, expires, headline, description, instruction, msgType, referencesId, altFrom, altTo]);
 
   const defs = PARAM_DEFS[phenomenon] || [];
 
-  // When phenomenon changes, reset params
+  // When phenomenon changes, reset params AND oznacz pola jako nie-edytowane
   useEffect(() => {
     const newParams = getDefaultParams(phenomenon);
     setParams(newParams);
+    // Reset flag edycji przy zmianie zjawiska
+    descriptionUserEdited.current = false;
+    instructionUserEdited.current = false;
   }, [phenomenon]);
 
   // Debounced level check
@@ -135,6 +167,63 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     }, 300);
     return () => clearTimeout(levelTimer.current);
   }, [phenomenon, params]);
+
+  // Pobierz domyślne teksty gdy zmienia się zjawisko lub stopień
+  // Nie nadpisuj jeśli użytkownik ręcznie edytował pole
+  useEffect(() => {
+    if (!level || !phenomenon) return;
+    axios.get(`${API}/warnings/default-texts`, {
+      params: { phenomenon, level, params: JSON.stringify(params) }
+    })
+      .then(r => {
+        const { description: defDesc, impacts: defImpacts, instruction: defInstr } = r.data;
+        if (!descriptionUserEdited.current) {
+          setDescription(defDesc || '');
+          lastDefaultDescription.current = defDesc || '';
+        }
+        if (!impactsUserEdited.current) {
+          setImpacts(defImpacts || '');
+          lastDefaultImpacts.current = defImpacts || '';
+        }
+        if (!instructionUserEdited.current) {
+          setInstruction(defInstr || '');
+          lastDefaultInstruction.current = defInstr || '';
+        }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phenomenon, level]);
+
+  // Wczytaj dane ostrzeżenia do formularza przy wyborze Update
+  const handleLoadForUpdate = useCallback((warningId) => {
+    setReferencesId(warningId);
+    if (!warningId || msgType !== 'Update') return;
+    const orig = warnings.find(w => w.id === warningId);
+    if (!orig) return;
+    // Wypełnij formularz danymi oryginału — synoptyk może je zmodyfikować
+    setPhenomenon(orig.phenomenon || 'silny_wiatr');
+    setParams(orig.params || {});
+    setOnset(orig.onset ? orig.onset.slice(0, 16) : getISOLocal(0));
+    setExpires(orig.expires ? orig.expires.slice(0, 16) : getISOLocal(24 * 60));
+    setHeadline(orig.headline || '');
+    setDescription(orig.description || '');
+    setImpacts(orig.impacts || '');
+    setInstruction(orig.instruction || '');
+    setAltFrom(orig.altitude_from_m != null ? String(orig.altitude_from_m) : '');
+    setAltTo(orig.altitude_to_m != null ? String(orig.altitude_to_m) : '');
+    // Traktuj załadowane teksty jako ręcznie edytowane (nie zastępuj defaultami)
+    descriptionUserEdited.current = true;
+    impactsUserEdited.current = true;
+    instructionUserEdited.current = true;
+    lastDefaultDescription.current = orig.description || '';
+    lastDefaultImpacts.current = orig.impacts || '';
+    lastDefaultInstruction.current = orig.instruction || '';
+    // Wczytaj zasięg oryginału na mapę
+    if (onLoadCounties && orig.counties?.length) {
+      onLoadCounties(orig.counties);
+    }
+    onStatusChange({ msg: `Wczytano ostrzeżenie do aktualizacji: ${orig.phenomenon?.replace(/_/g,' ')} St.${orig.level}`, type: 'info' });
+  }, [warnings, msgType, onStatusChange, onLoadCounties]);
 
   const handleParamChange = useCallback((key, value) => {
     setParams(prev => ({ ...prev, [key]: value }));
@@ -162,6 +251,7 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
   const resetForm = () => {
     setHeadline('');
     setDescription('');
+    setImpacts('');
     setInstruction('');
     setOnset(getISOLocal(0));
     setExpires(getISOLocal(24 * 60));
@@ -169,6 +259,14 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     setReferencesId('');
     setAltFrom('');
     setAltTo('');
+    // Reset flag ręcznej edycji — przy nowym ostrzeżeniu defaulty znów mogą się załadować
+    descriptionUserEdited.current = false;
+    impactsUserEdited.current = false;
+    instructionUserEdited.current = false;
+    lastDefaultDescription.current = '';
+    lastDefaultImpacts.current = '';
+    lastDefaultInstruction.current = '';
+    resetDraft(); // wyczyść persist store
   };
 
   const handleSave = async () => {
@@ -179,9 +277,17 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     setSaving(true);
     onStatusChange({ msg: 'Zapisywanie ostrzeżenia...', type: 'info' });
     try {
-      const res = await axios.post(`${API}/warnings`, buildPayload());
-      onWarningCreated(res.data);
-      onStatusChange({ msg: `Ostrzeżenie stopień ${res.data.level} — ${phenomenon.replace(/_/g, ' ')} zapisane`, type: 'success' });
+      let res;
+      if (msgType === 'Update' && referencesId) {
+        // PUT nadpisuje oryginał — nowe ostrzeżenie zastępuje stare w miejscu
+        res = await axios.put(`${API}/warnings/${referencesId}`, buildPayload());
+        onWarningCreated(res.data);
+        onStatusChange({ msg: `✅ Aktualizacja St.${res.data.level} — ${phenomenon.replace(/_/g, ' ')} zapisana`, type: 'success' });
+      } else {
+        res = await axios.post(`${API}/warnings`, buildPayload());
+        onWarningCreated(res.data);
+        onStatusChange({ msg: `Ostrzeżenie stopień ${res.data.level} — ${phenomenon.replace(/_/g, ' ')} zapisane`, type: 'success' });
+      }
       resetForm();
     } catch (e) {
       onStatusChange({ msg: `Błąd zapisu: ${e.message}`, type: 'error' });
@@ -190,40 +296,37 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     }
   };
 
-  const handleSaveAsTemplate = async () => {
-    if (!phenomenon) return;
-    const name = prompt('Nazwa szablonu:');
-    if (!name) return;
-    try {
-      const res = await axios.post(`${API}/templates`, {
-        name, phenomenon, params,
-        headline, instruction,
-        altitude_from_m: altFrom ? parseFloat(altFrom) : null,
-        altitude_to_m:   altTo   ? parseFloat(altTo)   : null,
-      });
-      setTemplates(prev => [...prev, res.data]);
-      onStatusChange({ msg: `Szablon "${name}" zapisany`, type: 'success' });
-    } catch(e) { onStatusChange({ msg: `Błąd: ${e.message}`, type: 'error' }); }
+  // ── Presety (lokalne w przeglądarce — bez API) ────────────────────────────
+  const savePresets = (list) => {
+    setPresets(list);
+    try { localStorage.setItem('meteocap_presets', JSON.stringify(list)); } catch {}
   };
 
-  const handleLoadTemplate = (tpl) => {
-    setPhenomenon(tpl.phenomenon);
-    setParams(tpl.params || {});
-    setHeadline(tpl.headline || '');
-    setInstruction(tpl.instruction || '');
-    setAltFrom(tpl.altitude_from_m != null ? String(tpl.altitude_from_m) : '');
-    setAltTo(tpl.altitude_to_m != null ? String(tpl.altitude_to_m) : '');
-    setShowTemplates(false);
-    onStatusChange({ msg: `Wczytano szablon "${tpl.name}"`, type: 'success' });
+  const handleSavePreset = () => {
+    const name = presetName.trim();
+    if (!name || !phenomenon) return;
+    const newPreset = { id: Date.now().toString(), name, phenomenon, params: { ...params }, altFrom, altTo };
+    savePresets([...presets, newPreset]);
+    setPresetName('');
+    onStatusChange({ msg: `Preset \u201e${name}\u201c zapisany`, type: 'success' });
   };
 
-  const handleDeleteTemplate = async (id) => {
-    await axios.delete(`${API}/templates/${id}`);
-    setTemplates(prev => prev.filter(t => t.id !== id));
-    onStatusChange({ msg: 'Szablon usunięty', type: 'info' });
+  const handleLoadPreset = (preset) => {
+    setPhenomenon(preset.phenomenon);
+    setParams(preset.params || {});
+    setAltFrom(preset.altFrom || '');
+    setAltTo(preset.altTo || '');
+    setShowPresets(false);
+    descriptionUserEdited.current = false;
+    instructionUserEdited.current = false;
+    onStatusChange({ msg: `Wczytano preset \u201e${preset.name}\u201c`, type: 'success' });
   };
 
-  const handleImportXML = async (e) => {
+  const handleDeletePreset = (id) => {
+    savePresets(presets.filter(p => p.id !== id));
+  };
+
+    const handleImportXML = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const formData = new FormData();
@@ -255,6 +358,7 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     expires: new Date(expires).toISOString(),
     headline: headline || undefined,
     description: description || undefined,
+    impacts: impacts || undefined,
     instruction: instruction || undefined,
     msg_type: msgType,
     references_id: referencesId || undefined,
@@ -280,7 +384,12 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     }
     setSaving(true);
     try {
-      const res = await axios.post(`${API}/warnings`, buildPayload());
+      let res;
+      if (msgType === 'Update' && referencesId) {
+        res = await axios.put(`${API}/warnings/${referencesId}`, buildPayload());
+      } else {
+        res = await axios.post(`${API}/warnings`, buildPayload());
+      }
       onWarningCreated(res.data);
       const { id, level: lvl } = res.data;
       const ph = phenomenon;
@@ -297,6 +406,30 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
       onStatusChange({ msg: `Błąd generowania XML: ${e.message}`, type: 'error' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  // ── Import z API IMGW ──────────────────────────────────────────────────────
+  const handleImportIMGW = async () => {
+    setImgwImporting(true);
+    try {
+      const res = await axios.get(`${API}/import/imgw`);
+      setImgwPreview(res.data);
+    } catch(e) {
+      onStatusChange({ msg: `Błąd pobierania z API IMGW: ${e.message}`, type: 'error' });
+    } finally {
+      setImgwImporting(false);
+    }
+  };
+
+  const handleSaveIMGW = async (warningsToSave) => {
+    try {
+      const res = await axios.post(`${API}/import/imgw/save`, { warnings: warningsToSave });
+      res.data.warnings.forEach(w => onWarningCreated(w));
+      onStatusChange({ msg: `Zaimportowano ${res.data.saved} ostrzeżeń z IMGW`, type: 'success' });
+      setImgwPreview(null);
+    } catch(e) {
+      onStatusChange({ msg: `Błąd zapisu: ${e.message}`, type: 'error' });
     }
   };
 
@@ -426,11 +559,22 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
             <div className="form-input-group">
               <label className="form-input-label">
                 Ostrzeżenie do {msgType === 'Update' ? 'aktualizacji' : 'anulowania'}
+                {msgType === 'Update' && (
+                  <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>
+                    — formularz zostanie wypełniony danymi oryginału
+                  </span>
+                )}
               </label>
               {/* Lista rozwijana zamiast wpisywania ID */}
               {warnings && warnings.filter(w => w.status === 'active' || w.status === 'pending').length > 0 ? (
                 <select className="form-select" value={referencesId}
-                  onChange={e => setReferencesId(e.target.value)}>
+                  onChange={e => {
+                    if (msgType === 'Update') {
+                      handleLoadForUpdate(e.target.value);
+                    } else {
+                      setReferencesId(e.target.value);
+                    }
+                  }}>
                   <option value="">— wybierz ostrzeżenie —</option>
                   {warnings
                     .filter(w => w.status === 'active' || w.status === 'pending')
@@ -456,45 +600,71 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
           )}
         </div>
 
-        {/* Pasek narzędzi — szablony i import */}
-        <div style={{ display:'flex', gap:6, marginBottom:16, flexWrap:'wrap' }}>
+        {/* Pasek narzędzi — presety i import */}
+        <div style={{ display:'flex', gap:6, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
+
+          {/* Presety — dropdown */}
           <div style={{ position:'relative' }}>
             <button className="btn btn-secondary btn-sm"
-              onClick={() => setShowTemplates(p=>!p)}
+              onClick={() => setShowPresets(p=>!p)}
               style={{ fontSize:11 }}>
-              📋 Szablony ({templates.length})
+              ⚡ Presety {presets.length > 0 && `(${presets.length})`}
             </button>
-            {showTemplates && (
+            {showPresets && (
               <div style={{
                 position:'absolute', top:'100%', left:0, marginTop:4, zIndex:200,
                 background:'var(--bg-surface)', border:'1px solid var(--border)',
-                borderRadius:'var(--radius-lg)', padding:8, minWidth:220,
-                boxShadow:'var(--shadow-panel)', maxHeight:200, overflowY:'auto',
+                borderRadius:'var(--radius-lg)', padding:8, minWidth:240,
+                boxShadow:'var(--shadow-panel)', maxHeight:240, overflowY:'auto',
               }}>
-                {templates.length === 0
-                  ? <div style={{fontSize:11,color:'var(--text-muted)',padding:'4px 8px'}}>Brak szablonów</div>
-                  : templates.map(t => (
-                    <div key={t.id} style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
-                      <button onClick={() => handleLoadTemplate(t)}
-                        style={{flex:1,textAlign:'left',padding:'4px 8px',borderRadius:'var(--radius-sm)',
+                {presets.length === 0 ? (
+                  <div style={{fontSize:11,color:'var(--text-muted)',padding:'4px 8px'}}>
+                    Brak presetów — użyj pola poniżej aby zapisać bieżące ustawienia suwaków.
+                  </div>
+                ) : (
+                  presets.map(p => (
+                    <div key={p.id} style={{display:'flex',alignItems:'center',gap:4,marginBottom:4}}>
+                      <button onClick={() => handleLoadPreset(p)}
+                        style={{flex:1,textAlign:'left',padding:'5px 8px',borderRadius:'var(--radius-sm)',
                           border:'1px solid var(--border)',background:'var(--bg-elevated)',
                           color:'var(--text-secondary)',fontSize:11,cursor:'pointer'}}>
-                        {t.name}
+                        <span style={{marginRight:6,opacity:0.7}}>
+                          {p.phenomenon?.replace(/_/g,' ')}
+                        </span>
+                        <span style={{fontWeight:600}}>{p.name}</span>
                       </button>
-                      <button onClick={() => handleDeleteTemplate(t.id)}
-                        style={{padding:'2px 6px',borderRadius:'var(--radius-sm)',
+                      <button onClick={() => handleDeletePreset(p.id)}
+                        title="Usuń preset"
+                        style={{padding:'2px 5px',borderRadius:'var(--radius-sm)',
                           border:'1px solid transparent',background:'transparent',
-                          color:'var(--warn-3)',fontSize:11,cursor:'pointer'}}>✕</button>
+                          color:'var(--warn-3)',fontSize:11,cursor:'pointer',flexShrink:0}}>✕</button>
                     </div>
-                  ))}
+                  ))
+                )}
+                {/* Inline zapis nowego presetu */}
+                <div style={{borderTop:'1px solid var(--border)',marginTop:6,paddingTop:6,display:'flex',gap:4}}>
+                  <input
+                    value={presetName}
+                    onChange={e => setPresetName(e.target.value)}
+                    onKeyDown={e => e.key==='Enter' && handleSavePreset()}
+                    placeholder="Nazwa presetu…"
+                    style={{flex:1,padding:'4px 6px',fontSize:11,borderRadius:'var(--radius-sm)',
+                      border:'1px solid var(--border)',background:'var(--bg-elevated)',
+                      color:'var(--text-primary)',outline:'none'}}
+                  />
+                  <button onClick={handleSavePreset} disabled={!presetName.trim()||!phenomenon}
+                    style={{padding:'4px 8px',fontSize:11,borderRadius:'var(--radius-sm)',
+                      border:'1px solid var(--accent-blue)',background:'rgba(59,130,246,0.15)',
+                      color:'var(--text-accent)',cursor:'pointer',flexShrink:0,
+                      opacity:(!presetName.trim()||!phenomenon)?0.4:1}}>
+                    Zapisz
+                  </button>
+                </div>
               </div>
             )}
           </div>
-          <button className="btn btn-secondary btn-sm"
-            onClick={handleSaveAsTemplate} disabled={!phenomenon}
-            style={{ fontSize:11 }}>
-            💾 Zapisz jako szablon
-          </button>
+
+          {/* Import XML */}
           <button className="btn btn-secondary btn-sm"
             onClick={() => fileInputRef.current?.click()}
             style={{ fontSize:11 }}>
@@ -502,9 +672,18 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
           </button>
           <input ref={fileInputRef} type="file" accept=".xml"
             onChange={handleImportXML} style={{ display:'none' }} />
+
+          {/* Import z API IMGW */}
+          <button className="btn btn-secondary btn-sm"
+            onClick={handleImportIMGW}
+            disabled={imgwImporting}
+            title="Pobierz aktualne ostrzeżenia z API IMGW-PIB"
+            style={{ fontSize:11, borderColor:'var(--accent-blue)' }}>
+            {imgwImporting ? '⏳' : '🌩'} IMGW API
+          </button>
         </div>
 
-        {/* Elewacja n.p.m. */}
+                {/* Elewacja n.p.m. */}
         <div className="form-section">
           <div className="form-section-label">Zakres elewacji (opcjonalnie)</div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:6 }}>
@@ -569,23 +748,48 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
             />
           </div>
           <div className="form-input-group" style={{ marginBottom: 10 }}>
-            <label className="form-input-label">Opis (opcjonalnie)</label>
+            <label className="form-input-label">Opis przebiegu</label>
             <textarea
               className="form-textarea"
-              placeholder="Szczegółowy opis zjawiska..."
+              placeholder="Prognozowany przebieg zjawiska..."
               value={description}
-              onChange={e => setDescription(e.target.value)}
+              onChange={e => {
+                setDescription(e.target.value);
+                if (e.target.value !== lastDefaultDescription.current) {
+                  descriptionUserEdited.current = true;
+                }
+              }}
+              rows={2}
+            />
+          </div>
+          <div className="form-input-group" style={{ marginBottom: 10 }}>
+            <label className="form-input-label">Spodziewane skutki</label>
+            <textarea
+              className="form-textarea"
+              placeholder="Spodziewane skutki zjawiska..."
+              value={impacts}
+              onChange={e => {
+                setImpacts(e.target.value);
+                if (e.target.value !== lastDefaultImpacts.current) {
+                  impactsUserEdited.current = true;
+                }
+              }}
               rows={3}
             />
           </div>
           <div className="form-input-group">
-            <label className="form-input-label">Zalecenia (opcjonalnie)</label>
+            <label className="form-input-label">Zalecenia — co robić?</label>
             <textarea
               className="form-textarea"
               placeholder="Zalecane działania dla służb i ludności..."
               value={instruction}
-              onChange={e => setInstruction(e.target.value)}
-              rows={2}
+              onChange={e => {
+                setInstruction(e.target.value);
+                if (e.target.value !== lastDefaultInstruction.current) {
+                  instructionUserEdited.current = true;
+                }
+              }}
+              rows={3}
             />
           </div>
         </div>
@@ -636,6 +840,108 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
         )}
       </div>
       {previewXml && <XmlPreviewModal xml={previewXml} onClose={() => setPreviewXml(null)} />}
+
+      {/* Modal podglądu importu z API IMGW */}
+      {imgwPreview && (
+        <div style={{
+          position:'fixed', inset:0, zIndex:9000,
+          background:'rgba(0,0,0,0.75)', display:'flex',
+          alignItems:'center', justifyContent:'center',
+        }} onClick={() => setImgwPreview(null)}>
+          <div style={{
+            width:'85vw', maxWidth:900, maxHeight:'85vh',
+            background:'var(--bg-surface)', border:'1px solid var(--border)',
+            borderRadius:'var(--radius-lg)', display:'flex', flexDirection:'column',
+            boxShadow:'0 8px 64px rgba(0,0,0,0.8)',
+          }} onClick={e => e.stopPropagation()}>
+            {/* Nagłówek */}
+            <div style={{padding:'14px 20px', borderBottom:'1px solid var(--border)',
+              display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+              <div>
+                <span style={{fontSize:13, fontWeight:700, color:'var(--text-primary)'}}>
+                  🌩 Import z API IMGW-PIB
+                </span>
+                <span style={{fontSize:11, color:'var(--text-muted)', marginLeft:10}}>
+                  {imgwPreview.count} ostrzeżeń · {imgwPreview.skipped} pominięte
+                </span>
+              </div>
+              <button onClick={() => setImgwPreview(null)}
+                style={{padding:'4px 10px', borderRadius:'var(--radius-sm)',
+                  border:'1px solid var(--border)', background:'var(--bg-elevated)',
+                  color:'var(--text-secondary)', fontSize:11, cursor:'pointer'}}>
+                ✕ Zamknij
+              </button>
+            </div>
+
+            {/* Lista ostrzeżeń */}
+            <div style={{flex:1, overflowY:'auto', padding:16}}>
+              {imgwPreview.warnings.length === 0 ? (
+                <div style={{color:'var(--text-muted)', textAlign:'center', padding:32}}>
+                  Brak aktualnych ostrzeżeń w API IMGW
+                </div>
+              ) : (
+                imgwPreview.warnings.map((w, i) => {
+                  const lvlColor = {1:'#facc15', 2:'#f97316', 3:'#ef4444'}[w.level] || '#facc15';
+                  return (
+                    <div key={i} style={{
+                      border:'1px solid var(--border)', borderRadius:'var(--radius-md)',
+                      padding:12, marginBottom:8, background:'var(--bg-elevated)',
+                    }}>
+                      <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:6}}>
+                        <span style={{
+                          background:lvlColor, color:'#000', fontWeight:700,
+                          fontSize:11, padding:'2px 8px', borderRadius:4,
+                        }}>St.{w.level}</span>
+                        <span style={{fontSize:12, fontWeight:600, color:'var(--text-primary)'}}>
+                          {w.headline}
+                        </span>
+                        <span style={{fontSize:10, color:'var(--text-muted)', marginLeft:'auto'}}>
+                          {w.county_count} powiatów
+                        </span>
+                      </div>
+                      <div style={{fontSize:10, color:'var(--text-muted)', marginBottom:4}}>
+                        {w.onset   ? new Date(w.onset).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—'}
+                        {' → '}
+                        {w.expires ? new Date(w.expires).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—'}
+                        {' (czas lokalny)'}
+                        {w.prawdopodobienstwo && ` · prawdopodobieństwo: ${w.prawdopodobienstwo}%`}
+                      </div>
+                      {w.description && (
+                        <div style={{fontSize:11, color:'var(--text-secondary)', fontStyle:'italic', marginBottom:4}}>
+                          {w.description}
+                        </div>
+                      )}
+                      <div style={{fontSize:10, color:'var(--text-muted)'}}>
+                        📋 {w.biuro}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Stopka */}
+            {imgwPreview.warnings.length > 0 && (
+              <div style={{padding:'12px 16px', borderTop:'1px solid var(--border)',
+                display:'flex', gap:8, justifyContent:'flex-end'}}>
+                <button onClick={() => setImgwPreview(null)}
+                  style={{padding:'7px 16px', borderRadius:'var(--radius-md)',
+                    border:'1px solid var(--border)', background:'transparent',
+                    color:'var(--text-secondary)', fontSize:12, cursor:'pointer'}}>
+                  Anuluj
+                </button>
+                <button onClick={() => handleSaveIMGW(imgwPreview.warnings)}
+                  style={{padding:'7px 18px', borderRadius:'var(--radius-md)',
+                    border:'1px solid var(--accent-blue)',
+                    background:'rgba(59,130,246,0.15)',
+                    color:'var(--text-accent)', fontSize:12, fontWeight:600, cursor:'pointer'}}>
+                  ✓ Importuj wszystkie ({imgwPreview.count})
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

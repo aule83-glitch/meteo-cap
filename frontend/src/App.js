@@ -70,6 +70,15 @@ export default function App() {
     setStatus({ msg: `Ostrzeżenie stopień ${warning.level} — ${warning.phenomenon?.replace(/_/g,' ')} wydane`, type: 'success' });
   }, []);
 
+  // Wczytaj powiaty z istniejącego ostrzeżenia na mapę (przy Update)
+  const handleLoadCountiesToMap = useCallback((counties) => {
+    setSelectedCounties(counties || []);
+    setDrawnPolygon(null);
+    if (counties?.length) {
+      setStatus({ msg: `Załadowano zasięg oryginału: ${counties.length} powiat${counties.length===1?'':counties.length<5?'y':'ów'} — możesz go edytować`, type: 'info' });
+    }
+  }, []);
+
   const handleWarningDeleted = useCallback((id) => {
     if (id === '__refresh__') { loadWarnings(); return; }
     setWarnings(prev => prev.filter(w => w.id !== id));
@@ -120,6 +129,7 @@ export default function App() {
               onWarningCreated={handleWarningCreated}
               onStatusChange={setStatus}
               warnings={warnings}
+              onLoadCounties={handleLoadCountiesToMap}
             />
           )}
           {view === 'list' && (

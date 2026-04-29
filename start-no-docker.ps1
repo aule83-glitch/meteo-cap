@@ -4,7 +4,7 @@
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host " MeteoCAP — Start bez Dockera" -ForegroundColor Cyan
+Write-Host " MeteoCAP — Start bez Dockera (Vite)" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -26,7 +26,7 @@ try {
     $nodeVer = node --version 2>&1
     Write-Host "[OK] Node $nodeVer" -ForegroundColor Green
 } catch {
-    Write-Host "[BLAD] Node.js nie znaleziony. Pobierz z https://nodejs.org (wersja 18 LTS)" -ForegroundColor Red
+    Write-Host "[BLAD] Node.js nie znaleziony. Pobierz z https://nodejs.org (wersja 18+)" -ForegroundColor Red
     exit 1
 }
 
@@ -43,15 +43,15 @@ Write-Host ""
 Write-Host "Uruchamianie backendu (port 8000)..." -ForegroundColor Yellow
 
 # Uruchom backend w osobnym oknie
-$backendCmd = "Set-Location '$backendDir'; `$env:PYTHONPATH='$backendDir'; python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"
+$backendCmd = "Set-Location '$backendDir'; `$env:PYTHONPATH='$backendDir'; python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $backendCmd
 
 Start-Sleep -Seconds 3
 
 Write-Host "Uruchamianie frontendu (port 3000)..." -ForegroundColor Yellow
 
-# Uruchom frontend w osobnym oknie
-$frontendCmd = "Set-Location '$frontendDir'; `$env:REACT_APP_API_URL='http://localhost:8000/api'; `$env:NODE_OPTIONS='--openssl-legacy-provider'; npm start"
+# Vite dev server z proxy na localhost:8000
+$frontendCmd = "Set-Location '$frontendDir'; npm start"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $frontendCmd
 
 Write-Host ""

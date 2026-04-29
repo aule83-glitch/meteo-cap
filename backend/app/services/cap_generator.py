@@ -47,6 +47,24 @@ def generate_cap_xml_per_county(warning: dict) -> List[str]:
     ]
 
 
+def _add_elevation(info_el, warning: dict) -> None:
+    """Dodaje parametry elewacji do bloku <info> jeśli podano zakres n.p.m."""
+    alt_from = warning.get("altitude_from_m")
+    alt_to   = warning.get("altitude_to_m")
+    if alt_from is not None:
+        try:
+            ft = int(round(float(alt_from) * 3.28084))
+            _param(info_el, "altitude", str(ft))
+        except (ValueError, TypeError):
+            pass
+    if alt_to is not None:
+        try:
+            ft = int(round(float(alt_to) * 3.28084))
+            _param(info_el, "ceiling", str(ft))
+        except (ValueError, TypeError):
+            pass
+
+
 def _build_cap_xml(warning: dict, counties_override=None) -> str:
     now      = datetime.now(timezone.utc)
     sent_str = now.strftime("%Y-%m-%dT%H:%M:%S+00:00")

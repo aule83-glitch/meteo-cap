@@ -20,9 +20,59 @@ try:
     from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
     from reportlab.graphics.shapes import Drawing, Rect, String, Line, Circle
     from reportlab.graphics import renderPDF
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
     REPORTLAB_AVAILABLE = True
 except ImportError:
     REPORTLAB_AVAILABLE = False
+
+# ── Rejestracja fontów z obsługą polskich znaków (DejaVu Sans) ───────────────
+# DejaVu Sans jest dostępny w obrazie python:3.12-slim przez libfreetype6-dev
+# lub instalowany przez apt. Fallback na Helvetica (bez polskich znaków).
+_FONT_DIRS = [
+    "/usr/share/fonts/truetype/dejavu",
+    "/usr/share/fonts/dejavu",
+    "/usr/share/fonts/TTF",
+    "/usr/local/share/fonts",
+    os.path.join(os.path.dirname(__file__), "..", "data", "fonts"),
+]
+
+def _find_font_file(filename: str) -> str | None:
+    for d in _FONT_DIRS:
+        path = os.path.join(d, filename)
+        if os.path.isfile(path):
+            return path
+    return None
+
+# Nazwy fontów używane w stylach — domyślnie Helvetica (fallback bez PL)
+_FONT_REGULAR = "Helvetica"
+_FONT_BOLD    = "Helvetica-Bold"
+
+if REPORTLAB_AVAILABLE:
+    _reg  = _find_font_file("DejaVuSans.ttf")
+    _bold = _find_font_file("DejaVuSans-Bold.ttf")
+    if _reg and _bold:
+        try:
+            pdfmetrics.registerFont(TTFont("DejaVuSans",      _reg))
+            pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", _bold))
+            _obl      = _find_font_file("DejaVuSans-Oblique.ttf")
+            _boldObl  = _find_font_file("DejaVuSans-BoldOblique.ttf")
+            if _obl:
+                pdfmetrics.registerFont(TTFont("DejaVuSans-Oblique",     _obl))
+            if _boldObl:
+                pdfmetrics.registerFont(TTFont("DejaVuSans-BoldOblique", _boldObl))
+            from reportlab.pdfbase.pdfmetrics import registerFontFamily
+            registerFontFamily(
+                "DejaVuSans",
+                normal     = "DejaVuSans",
+                bold       = "DejaVuSans-Bold",
+                italic     = "DejaVuSans-Oblique"     if _obl     else "DejaVuSans",
+                boldItalic = "DejaVuSans-BoldOblique" if _boldObl else "DejaVuSans-Bold",
+            )
+            _FONT_REGULAR = "DejaVuSans"
+            _FONT_BOLD    = "DejaVuSans-Bold"
+        except Exception:
+            pass  # zostaje Helvetica
 
 PHENOMENON_LABELS = {
     "burze": "Burze", "intensywne_opady_deszczu": "Intensywne opady deszczu",
@@ -105,19 +155,19 @@ def generate_warning_pdf(
     # Style niestandardowe
     style_h1 = ParagraphStyle('h1', parent=styles['Heading1'],
         fontSize=16, textColor=colors.HexColor("#1e3a5f"),
-        spaceAfter=4, fontName='Helvetica-Bold')
+        spaceAfter=4, fontName=_FONT_BOLD)
     style_h2 = ParagraphStyle('h2', parent=styles['Heading2'],
         fontSize=12, textColor=colors.HexColor("#1e3a5f"),
-        spaceAfter=3, fontName='Helvetica-Bold')
+        spaceAfter=3, fontName=_FONT_BOLD)
     style_body = ParagraphStyle('body', parent=styles['Normal'],
-        fontSize=9, leading=14, fontName='Helvetica')
+        fontSize=9, leading=14, fontName=_FONT_REGULAR)
     style_small = ParagraphStyle('small', parent=styles['Normal'],
-        fontSize=8, textColor=colors.HexColor("#64748b"), fontName='Helvetica')
+        fontSize=8, textColor=colors.HexColor("#64748b"), fontName=_FONT_REGULAR)
     style_center = ParagraphStyle('center', parent=styles['Normal'],
-        fontSize=9, alignment=TA_CENTER, fontName='Helvetica')
+        fontSize=9, alignment=TA_CENTER, fontName=_FONT_REGULAR)
     style_footer = ParagraphStyle('footer', parent=styles['Normal'],
         fontSize=7, textColor=colors.HexColor("#94a3b8"),
-        alignment=TA_CENTER, fontName='Helvetica')
+        alignment=TA_CENTER, fontName=_FONT_REGULAR)
 
     story = []
 
@@ -125,12 +175,12 @@ def generate_warning_pdf(
     # Logo/header bar
     header_data = [[
         Paragraph('<b>IMGW-PIB</b>', ParagraphStyle('logo',
-            fontSize=14, textColor=colors.white, fontName='Helvetica-Bold')),
+            fontSize=14, textColor=colors.white, fontName=_FONT_BOLD)),
         Paragraph(f'<b>{title}</b>', ParagraphStyle('title',
-            fontSize=11, textColor=colors.white, fontName='Helvetica-Bold',
+            fontSize=11, textColor=colors.white, fontName=_FONT_BOLD,
             alignment=TA_CENTER)),
         Paragraph(f'Stan na:<br/><b>{now_str}</b>', ParagraphStyle('date',
-            fontSize=8, textColor=colors.white, fontName='Helvetica',
+            fontSize=8, textColor=colors.white, fontName=_FONT_REGULAR,
             alignment=TA_RIGHT)),
     ]]
     header_table = Table(header_data, colWidths=[4*cm, 9*cm, 4*cm])
@@ -186,7 +236,7 @@ def generate_warning_pdf(
             sum_data.append([
                 Paragraph(ph, style_body),
                 Paragraph(f"<b>{lvl}</b>", ParagraphStyle('lc', fontSize=11,
-                    textColor=colors.black, fontName='Helvetica-Bold',
+                    textColor=colors.black, fontName=_FONT_BOLD,
                     alignment=TA_CENTER)),
                 Paragraph(STATUS_LABELS.get(w.get("status",""), "—"), style_body),
                 Paragraph(_fmt_dt(w.get("onset","")), style_body),
@@ -201,7 +251,7 @@ def generate_warning_pdf(
         ts = [
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1e3a5f")),
             ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTNAME', (0,0), (-1,0), _FONT_BOLD),
             ('FONTSIZE', (0,0), (-1,0), 9),
             ('FONTSIZE', (0,1), (-1,-1), 8),
             ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor("#f8fafc")]),
@@ -241,11 +291,11 @@ def generate_warning_pdf(
             hdr_data = [[
                 Paragraph(
                     f'<b>Stopień {lvl} — {ph}</b>',
-                    ParagraphStyle('wh', fontSize=11, fontName='Helvetica-Bold',
+                    ParagraphStyle('wh', fontSize=11, fontName=_FONT_BOLD,
                                    textColor=colors.HexColor("#1e3a5f"))),
                 Paragraph(
                     f'<b>{STATUS_LABELS.get(w.get("status",""), "—")}</b>',
-                    ParagraphStyle('ws', fontSize=9, fontName='Helvetica-Bold',
+                    ParagraphStyle('ws', fontSize=9, fontName=_FONT_BOLD,
                                    textColor=colors.white, alignment=TA_RIGHT)),
             ]]
             hdr_table = Table(hdr_data, colWidths=[13*cm, 4*cm])
@@ -272,7 +322,7 @@ def generate_warning_pdf(
                 ["Zasięg obszarowy:", area_desc],
             ]
             detail_table = Table(
-                [[Paragraph(r[0], ParagraphStyle('dl', fontSize=8, fontName='Helvetica-Bold',
+                [[Paragraph(r[0], ParagraphStyle('dl', fontSize=8, fontName=_FONT_BOLD,
                              textColor=colors.HexColor("#475569"))),
                   Paragraph(str(r[1]), style_body)]
                  for r in detail_rows],
@@ -288,13 +338,13 @@ def generate_warning_pdf(
             if voiv_groups:
                 block_elements.append(Spacer(1, 0.15*cm))
                 block_elements.append(Paragraph("Obszar ostrzeżenia:",
-                    ParagraphStyle('al', fontSize=8, fontName='Helvetica-Bold',
+                    ParagraphStyle('al', fontSize=8, fontName=_FONT_BOLD,
                                    textColor=colors.HexColor("#475569"))))
                 for vn, names in sorted(voiv_groups.items()):
                     names_str = ", ".join(sorted(names))
                     block_elements.append(Paragraph(
                         f'<b>woj. {vn}:</b> {names_str}',
-                        ParagraphStyle('vl', fontSize=7, leading=10, fontName='Helvetica',
+                        ParagraphStyle('vl', fontSize=7, leading=10, fontName=_FONT_REGULAR,
                                        textColor=colors.HexColor("#374151"))))
 
             # Parametry meteo
@@ -322,14 +372,40 @@ def generate_warning_pdf(
                 if param_lines:
                     block_elements.append(Paragraph(
                         "Parametry: " + " · ".join(param_lines),
-                        ParagraphStyle('pl', fontSize=8, fontName='Helvetica',
+                        ParagraphStyle('pl', fontSize=8, fontName=_FONT_REGULAR,
                                        textColor=colors.HexColor("#374151"))))
 
-            # Opis i instrukcje
+            # Opis przebiegu, skutki i zalecenia
             if w.get("description"):
-                block_elements.append(Spacer(1, 0.1*cm))
+                block_elements.append(Spacer(1, 0.15*cm))
+                block_elements.append(Paragraph(
+                    "Przebieg:",
+                    ParagraphStyle('sl', fontSize=8, fontName=_FONT_BOLD,
+                                   textColor=colors.HexColor("#475569"))))
                 block_elements.append(Paragraph(
                     f'<i>{w["description"]}</i>', style_body))
+
+            if w.get("impacts"):
+                block_elements.append(Spacer(1, 0.1*cm))
+                block_elements.append(Paragraph(
+                    "Spodziewane skutki:",
+                    ParagraphStyle('sl2', fontSize=8, fontName=_FONT_BOLD,
+                                   textColor=colors.HexColor("#475569"))))
+                for line in w["impacts"].split("\n"):
+                    if line.strip():
+                        block_elements.append(Paragraph(
+                            line.strip(), style_body))
+
+            if w.get("instruction"):
+                block_elements.append(Spacer(1, 0.1*cm))
+                block_elements.append(Paragraph(
+                    "Zalecenia — co robić:",
+                    ParagraphStyle('sl3', fontSize=8, fontName=_FONT_BOLD,
+                                   textColor=colors.HexColor("#475569"))))
+                for line in w["instruction"].split("\n"):
+                    if line.strip():
+                        block_elements.append(Paragraph(
+                            line.strip(), style_body))
 
             block_elements.append(Spacer(1, 0.4*cm))
             story.append(KeepTogether(block_elements))

@@ -9,11 +9,34 @@ const API = import.meta.env.VITE_API_URL || '/api';
 
 const VOIV_STYLE   = { color: 'rgba(59,130,246,0.8)', fillColor: 'transparent', fillOpacity: 0, weight: 1.8 };
 const COUNTY_STYLE = { color: 'rgba(59,130,246,0.25)', fillColor: 'rgba(59,130,246,0.03)', fillOpacity: 1, weight: 0.6 };
-const SEL_STYLE    = { color: '#facc15', fillColor: 'rgba(250,204,21,0.22)', fillOpacity: 1, weight: 1.8 };
+const SEL_STYLE    = { color: '#38bdf8', fillColor: 'rgba(56,189,248,0.25)', fillOpacity: 1, weight: 2.0 };
 const POLY_STYLE   = { color: '#06b6d4', fillColor: 'rgba(6,182,212,0.1)', fillOpacity: 1, weight: 2 };
 const HIGHLIGHT_STYLE = { color: '#a78bfa', fillColor: 'rgba(167,139,250,0.2)', fillOpacity: 1, weight: 2.5 };
 
-const LEVEL_COLORS = { 1: '#facc15', 2: '#f97316', 3: '#ef4444' };
+const LEVEL_COLORS  = { 1: '#facc15', 2: '#f97316', 3: '#ef4444' };
+const LEVEL_BORDERS = { 1: '#b8960a', 2: '#c45f00', 3: '#9a0000' };
+
+// Convex hull — obrys zewnętrzny grupy centroidów [[lat,lon],...]
+function convexHull(pts) {
+  if (pts.length < 3) return pts;
+  const cross = (O, A, B) =>
+    (A[0]-O[0])*(B[1]-O[1]) - (A[1]-O[1])*(B[0]-O[0]);
+  const sorted = [...pts].sort((a,b) => a[0]-b[0] || a[1]-b[1]);
+  const lower = [];
+  for (const p of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], p) <= 0)
+      lower.pop();
+    lower.push(p);
+  }
+  const upper = [];
+  for (let i = sorted.length-1; i >= 0; i--) {
+    const p = sorted[i];
+    while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], p) <= 0)
+      upper.pop();
+    upper.push(p);
+  }
+  return [...lower.slice(0,-1), ...upper.slice(0,-1)];
+}
 
 const TILE_LAYERS = [
   { id: 'dark',     label: 'Ciemna',       icon: '🌑', url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attr: '© CARTO © OSM' },
@@ -64,7 +87,8 @@ export default function MapPanel({
   const allCountiesRef = useRef([]);
 
   const [drawMode,   setDrawMode]   = useState(false);
-  const [loading,    setLoading]    = useState(true);
+  const [loading,      setLoading]      = useState(true);
+  const [layersLoaded, setLayersLoaded] = useState(false);
   const [activeBase, setActiveBase] = useState(getMapState().tileLayerId);
   const [showPicker, setShowPicker] = useState(false);
   const [L, setL] = useState(null);
@@ -156,17 +180,35 @@ export default function MapPanel({
       }).addTo(map);
       voivLayer.current = L.geoJSON(voivRes.data, { style: VOIV_STYLE, interactive: false }).addTo(map);
     } catch (e) { console.warn('Błąd ładowania warstw:', e); }
-    finally { setLoading(false); }
+    finally { setLoading(false); setLayersLoaded(true); }
   };
 
-  // Podświetl zaznaczone powiaty
+  // Podświetl zaznaczone powiaty (cyjan) — nie kasuje kolorów ostrzeżeń
   useEffect(() => {
-    Object.values(countyLayers.current).forEach(l => l.setStyle(COUNTY_STYLE));
+    // Dla każdego powiatu: przywróć kolor ostrzeżenia lub bazowy
+    Object.keys(countyLayers.current).forEach(countyId => {
+      const layer = countyLayers.current[countyId];
+      if (!layer) return;
+      const activeWarning = warnings
+        .filter(w => w.status === 'active' || w.status === 'pending')
+        .find(w => (w.counties || []).some(c => String(c.id) === String(countyId)));
+      if (activeWarning) {
+        const color = LEVEL_COLORS[activeWarning.level] || '#facc15';
+        const isDashed = activeWarning.status === 'pending';
+        layer.setStyle({
+          color, fillColor: color, fillOpacity: 0.35,
+          weight: isDashed ? 1.5 : 2, dashArray: isDashed ? '6,4' : null,
+        });
+      } else {
+        layer.setStyle(COUNTY_STYLE);
+      }
+    });
+    // Nałóż cyjan na zaznaczone
     selectedCounties.forEach(c => {
       const l = countyLayers.current[c.id];
       if (l) l.setStyle(SEL_STYLE);
     });
-  }, [selectedCounties]);
+  }, [selectedCounties, warnings]);
 
   // Podświetl ostrzeżenie z historii/edytora
   useEffect(() => {
@@ -190,65 +232,112 @@ export default function MapPanel({
   useEffect(() => {
     const map = leafletMap.current;
     if (!map || !L) return;
+
+    // Usuń stare markery (labele)
     warnLayers.current.forEach(l => { try { map.removeLayer(l); } catch (e) {} });
     warnLayers.current = [];
+
+    // Reset wszystkich powiatów do bazowego stylu
+    Object.values(countyLayers.current).forEach(l => l.setStyle(COUNTY_STYLE));
 
     warnings
       .filter(w => w.status === 'active' || w.status === 'pending')
       .forEach(w => {
-        const color = LEVEL_COLORS[w.level] || '#facc15';
-        const icon  = PHENOMENON_ICONS[w.phenomenon] || '⚠';
-        const label = PHENOMENON_SHORT[w.phenomenon] || w.phenomenon;
+        const color    = LEVEL_COLORS[w.level] || '#facc15';
+        const icon     = PHENOMENON_ICONS[w.phenomenon] || '⚠';
+        const label    = PHENOMENON_SHORT[w.phenomenon] || w.phenomenon;
         const counties = w.counties || [];
         const isDashed = w.status === 'pending';
 
-        // Kółka per powiat (małe, bez labelów)
+        // Koloruj poligony powiatów
+        const borderColor = LEVEL_BORDERS[w.level] || color;
         counties.forEach(c => {
-          const circle = L.circleMarker([c.lat, c.lon], {
-            radius: 7, color, fillColor: color, fillOpacity: 0.2, weight: isDashed ? 1 : 1.5,
-            dashArray: isDashed ? '4,3' : null,
-          });
-          circle.addTo(map);
-          warnLayers.current.push(circle);
+          const layer = countyLayers.current[c.id];
+          if (layer) {
+            layer.setStyle({
+              color: borderColor,
+              fillColor: color,
+              fillOpacity: 0.38,
+              weight: isDashed ? 1.5 : 2.5,
+              dashArray: isDashed ? '6,4' : null,
+            });
+          }
         });
 
-        // JEDEN agregowany label na centroid obszaru
+        // JEDEN label na centroidzie obszaru
         if (!showWarningLabels || counties.length === 0) return;
-        const lons = counties.map(c => c.lon).filter(Boolean);
         const lats = counties.map(c => c.lat).filter(Boolean);
-        if (!lons.length) return;
-        const clon = lons.reduce((a,b)=>a+b,0)/lons.length;
-        const clat = lats.reduce((a,b)=>a+b,0)/lats.length;
+        const lons = counties.map(c => c.lon).filter(Boolean);
+        if (!lats.length) return;
+        const clat = lats.reduce((a,b)=>a+b,0) / lats.length;
+        const clon = lons.reduce((a,b)=>a+b,0) / lons.length;
 
-        const lvlText = `St.${w.level}`;
-        const statusDot = w.status === 'active' ? '●' : '○';
+        // Czas ważności do wyświetlenia w labelu
+        const fmtTime = iso => iso
+          ? new Date(iso).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
+          : '—';
+        const onsetStr   = fmtTime(w.onset);
+        const expiresStr = fmtTime(w.expires);
+        const statusDot  = w.status === 'active' ? '●' : '○';
+
         const divHtml = `
           <div style="
-            background:${color};color:#000;border:2px solid rgba(0,0,0,0.3);
-            border-radius:6px;padding:3px 7px;font-size:11px;font-weight:700;
-            white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.4);
-            display:flex;align-items:center;gap:4px;
-            opacity:${isDashed?'0.75':'1'};
+            background:${color};color:#000;border:2.5px solid ${LEVEL_BORDERS[w.level]||color};
+            border-radius:7px;padding:4px 8px;font-size:11px;font-weight:700;
+            white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,0.45);
+            display:flex;flex-direction:column;align-items:flex-start;gap:1px;
+            opacity:${isDashed?'0.82':'1'};min-width:90px;
           ">
-            <span style="font-size:13px">${icon}</span>
-            <span>${lvlText} ${label}</span>
-            <span style="font-size:9px;opacity:0.7">${statusDot}</span>
+            <div style="display:flex;align-items:center;gap:5px">
+              <span style="font-size:17px;line-height:1">${icon}</span>
+              <span>St.${w.level} ${label}</span>
+              <span style="font-size:9px;opacity:0.7">${statusDot}</span>
+            </div>
+            <div style="font-size:9px;opacity:0.8;font-weight:500;letter-spacing:0.01em">
+              do ${expiresStr}
+            </div>
           </div>`;
 
-        const divIcon = L.divIcon({
-          html: divHtml, className: '', iconAnchor: [0, 0],
+        const marker = L.marker([clat, clon], {
+          icon: L.divIcon({ html: divHtml, className: '', iconAnchor: [0, 0] }),
+          zIndexOffset: 400, interactive: true,
         });
-        const marker = L.marker([clat, clon], { icon: divIcon });
         marker.bindTooltip(
-          `<b>${icon} ${label}</b> — Stopień ${w.level}<br>`+
-          `${counties.length} powiat${counties.length===1?'':'ów'}<br>`+
-          `<small>Status: ${w.status === 'active' ? 'Aktywne' : 'Nadchodzące'}</small>`,
+          `<b>${icon} ${label}</b> — Stopień ${w.level}<br>` +
+          `${counties.length} powiat${counties.length===1?'':counties.length<5?'y':'ów'}<br>` +
+          `<small>Od: ${onsetStr}<br>Do: ${expiresStr}</small>`,
           { className: 'map-county-tooltip' }
         );
         marker.addTo(map);
         warnLayers.current.push(marker);
+
+        // Obrys całego obszaru ostrzeżenia — convex hull centroidów
+        if (lats.length >= 3) {
+          const pts = lats.map((lat,i) => [lat, lons[i]]);
+          const hull = convexHull(pts);
+          if (hull.length >= 3) {
+            const outline = L.polygon(hull, {
+              color: LEVEL_BORDERS[w.level] || color,
+              fillColor: 'transparent',
+              fillOpacity: 0,
+              weight: 3,
+              dashArray: isDashed ? '8,5' : null,
+              opacity: 0.85,
+              smoothFactor: 1.5,
+            });
+            outline.addTo(map);
+            warnLayers.current.push(outline);
+          }
+        }
       });
-  }, [warnings, showWarningLabels, L]);
+
+    // Przywróć cyjan dla zaznaczonych powiatów edycji (priorytet nad kolorem ostrzeżenia)
+    selectedCounties.forEach(c => {
+      const l = countyLayers.current[c.id];
+      if (l) l.setStyle(SEL_STYLE);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warnings, showWarningLabels, L, layersLoaded]);
 
   // MeteoAlarm — ładuj gdy włączone
   useEffect(() => {
@@ -269,40 +358,97 @@ export default function MapPanel({
     return () => clearInterval(interval);
   }, [maEnabled, maCountries]);
 
-  // Renderuj markery MeteoAlarm
+  // Renderuj warstwy MeteoAlarm
   useEffect(() => {
     const map = leafletMap.current;
     if (!map || !L) return;
     maLayersRef.current.forEach(l => { try { map.removeLayer(l); } catch(e) {} });
     maLayersRef.current = [];
-    if (!maEnabled) return;
+    if (!maEnabled || maWarnings.length === 0) return;
+
+    // Konwertuj geometry GeoJSON (Polygon / MultiPolygon) → tablica ringów [[lat,lon],…]
+    const geomToRings = (geometry) => {
+      if (!geometry) return [];
+      if (geometry.type === 'Polygon') {
+        return [geometry.coordinates[0].map(c => [c[1], c[0]])];
+      }
+      if (geometry.type === 'MultiPolygon') {
+        return geometry.coordinates.map(poly => poly[0].map(c => [c[1], c[0]]));
+      }
+      return [];
+    };
 
     maWarnings.forEach(w => {
-      const color = MA_LEVEL_COLORS[w.level] || '#facc15';
+      const color       = MA_LEVEL_COLORS[w.level] || '#facc15';
       const borderColor = MA_COUNTRY_BORDER[w.country] || '#64748b';
-      const flag = w.country_flag || '';
+      const flag        = w.country_flag || '';
+      const tooltipBase = `${flag} <b>${w.country_name}</b><br/>${w.event || w.phenomenon}<br/>Stopień ${w.level}`;
 
-      // Polygon jeśli dostępny
-      if (w.polygon && w.polygon.length >= 3) {
-        const latLngs = w.polygon.map(p => [p[1], p[0]]);
-        const poly = L.polygon(latLngs, {
+      const allRings = [];   // wszystkie ringi tego ostrzeżenia (do centroidu labela)
+
+      if (w.geocode_geometries && w.geocode_geometries.length > 0) {
+        // Preferuj precyzyjne granice powiatów z lookupowego pliku (EMMA_ID)
+        w.geocode_geometries.forEach(gg => {
+          const rings = geomToRings(gg.geometry);
+          rings.forEach(ring => {
+            if (ring.length < 3) return;
+            const poly = L.polygon(ring, {
+              color: borderColor, weight: 1.2,
+              fillColor: color, fillOpacity: 0.18,
+              dashArray: '5,4',
+            });
+            poly.bindTooltip(
+              `${tooltipBase}<br/><span style="font-size:10px;opacity:0.8">${gg.name}</span>`,
+              { className: 'map-county-tooltip' }
+            );
+            poly.addTo(map);
+            maLayersRef.current.push(poly);
+            allRings.push(...ring);
+          });
+        });
+
+      } else if (w.polygon && w.polygon.length >= 3) {
+        // Fallback: polygon bezpośrednio z feed (DWD, niektóre kraje)
+        const ring = w.polygon.map(p => [p[1], p[0]]);
+        const poly = L.polygon(ring, {
           color: borderColor, weight: 1.5,
           fillColor: color, fillOpacity: 0.15,
-          dashArray: '5,5',
+          dashArray: '5,4',
         });
         poly.bindTooltip(
-          `${flag} <b>${w.country_name}</b><br>${w.event || w.phenomenon}<br>Stopień ${w.level}<br>${w.area_desc}`,
+          `${tooltipBase}<br/><span style="font-size:10px;opacity:0.8">${w.area_desc || ''}</span>`,
           { className: 'map-county-tooltip' }
         );
         poly.addTo(map);
         maLayersRef.current.push(poly);
+        allRings.push(...ring);
 
-        // Label na centroidzie polygonu
-        const lats = latLngs.map(p=>p[0]); const lons = latLngs.map(p=>p[1]);
-        const clat = lats.reduce((a,b)=>a+b,0)/lats.length;
-        const clon = lons.reduce((a,b)=>a+b,0)/lons.length;
-        const divHtml = `<div style="background:${color};border:2px solid ${borderColor};border-radius:4px;padding:2px 6px;font-size:10px;font-weight:700;white-space:nowrap;opacity:0.9">${flag} St.${w.level}</div>`;
-        const mi = L.marker([clat, clon], { icon: L.divIcon({ html: divHtml, className:'', iconAnchor:[0,0] }), interactive: false });
+      } else {
+        // Ostatni fallback: marker w centrum kraju
+        const CENTERS = { DE:[51.2,10.5], CZ:[49.8,15.5], SK:[48.7,19.7], LT:[55.9,23.9], BY:[53.7,28.0], UA:[49.0,32.0] };
+        const center = CENTERS[w.country];
+        if (center) {
+          const icon = L.divIcon({
+            html: `<div style="background:${color};border:2px solid ${borderColor};border-radius:4px;padding:3px 7px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.4)">${flag} St.${w.level}</div>`,
+            className: '', iconAnchor: [0, 0],
+          });
+          const mi = L.marker(center, { icon, interactive: true });
+          mi.bindTooltip(`${tooltipBase}<br/><span style="font-size:10px;opacity:0.8">${w.area_desc || ''}</span>`, { className: 'map-county-tooltip' });
+          mi.addTo(map);
+          maLayersRef.current.push(mi);
+        }
+        return; // brak geometrii → nie dodajemy dodatkowego labela
+      }
+
+      // Jeden label per ostrzeżenie — centroid wszystkich jego geometrii
+      if (allRings.length > 0) {
+        const clat = allRings.reduce((s, p) => s + p[0], 0) / allRings.length;
+        const clon = allRings.reduce((s, p) => s + p[1], 0) / allRings.length;
+        const labelHtml = `<div style="background:${color};border:2px solid ${borderColor};border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.4);pointer-events:none">${flag} St.${w.level}</div>`;
+        const mi = L.marker([clat, clon], {
+          icon: L.divIcon({ html: labelHtml, className: '', iconAnchor: [0, 0] }),
+          interactive: false, zIndexOffset: 500,
+        });
         mi.addTo(map);
         maLayersRef.current.push(mi);
       }

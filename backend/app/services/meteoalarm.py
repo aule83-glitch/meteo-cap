@@ -2,15 +2,33 @@
 Integracja z MeteoAlarm — pobieranie ostrzeżeń krajów ościennych.
 Obsługuje format Atom Feed (legacy) z feeds.meteoalarm.org.
 Cache 10 minut — nie zamula backendu przy każdym requestcie.
+
+FIX: Geokody MeteoAlarm (EMMA_ID) z pełnymi poligonami (385 PL + sąsiedzi).
 """
 
 import urllib.request
 import xml.etree.ElementTree as ET
 import json
 import time
+import os
 import threading
 from datetime import datetime, timezone
 from typing import Optional
+
+# ---- Lookup geokodów PL (backend) -----------------------------------------------
+# Używany do dołączania geometrii gdy feed MeteoAlarm nie zawiera poligonu
+_GEOCODES_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "meteoalarm_geocodes_pl.json")
+_GEOCODES_PL: dict = {}
+
+def _load_geocodes():
+    global _GEOCODES_PL
+    try:
+        with open(_GEOCODES_PATH, encoding="utf-8") as f:
+            _GEOCODES_PL = json.load(f)
+    except Exception as e:
+        _GEOCODES_PL = {}
+
+_load_geocodes()
 
 # Dostępne kraje (feeds.meteoalarm.org)
 METEOALARM_FEEDS = {
@@ -147,8 +165,9 @@ def _parse_entry(entry, ns: dict, country_code: str, country_info: dict) -> Opti
         elif vn == 'awareness_level':
             awareness_level = vv
 
-    # Polygon z area
+    # Polygon z area + geocodes EMMA_ID
     polygon = None
+    emma_codes = []
     area = entry.find('cap:area', ns) or \
            entry.find('{urn:oasis:names:tc:emergency:cap:1.2}area')
     if area is not None:
@@ -165,6 +184,29 @@ def _parse_entry(entry, ns: dict, country_code: str, country_info: dict) -> Opti
                     polygon = coords
             except ValueError:
                 pass
+
+        # Wyciągnij kody EMMA_ID z <geocode>
+        for geocode_el in (
+            area.findall('cap:geocode', ns) or
+            area.findall('{urn:oasis:names:tc:emergency:cap:1.2}geocode')
+        ):
+            vn = find_text(geocode_el, 'valueName')
+            vv = find_text(geocode_el, 'value')
+            if vn == 'EMMA_ID' and vv:
+                emma_codes.append(vv)
+
+    # Dołącz geometrię z lookupowego pliku dla wszystkich krajów (PL, DE, CZ, SK, LT)
+    # Działa gdy feed nie zawiera poligonu, ale ma kody EMMA_ID w <geocode>
+    geocode_geometries = []
+    if emma_codes:
+        for code in emma_codes:
+            entry_data = _GEOCODES_PL.get(code)  # lookup zawiera już wszystkie kraje
+            if entry_data and entry_data.get('g'):
+                geocode_geometries.append({
+                    'code': code,
+                    'name': entry_data.get('n', code),
+                    'geometry': entry_data['g'],
+                })
 
     # Odfiltruj "null alerts" (CHMI wysyła potwierdzenia braku zagrożeń)
     if severity and severity.lower() in ('unknown', 'minor') and \
@@ -225,6 +267,8 @@ def _parse_entry(entry, ns: dict, country_code: str, country_info: dict) -> Opti
         "expires":     expires or "",
         "severity":    severity or "",
         "polygon":     polygon,
+        "emma_codes":  emma_codes,                  # kody EMMA_ID z <geocode>
+        "geocode_geometries": geocode_geometries,   # geometrie z pliku lookup (PL)
         "counties":    [],  # MeteoAlarm nie ma TERYT
     }
 

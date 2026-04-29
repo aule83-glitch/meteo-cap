@@ -69,17 +69,21 @@ def save_warnings():
         json.dump(WARNINGS_DB, f, ensure_ascii=False, indent=2)
 
 def _compute_status(w: dict) -> str:
-    """Oblicz aktualny status ostrzeżenia na podstawie czasu."""
+    """Oblicz aktualny status ostrzeżenia na podstawie czasu i flag."""
+    # Anulowane (Cancel CAP wydany przez oryginał lub to samo jest Cancel)
     if w.get("msg_type") == "Cancel":
         return "cancelled"
+    if w.get("is_cancelled"):
+        return "cancelled"
+    # Zastąpione aktualizacją
+    if w.get("is_updated") or w.get("superseded_by"):
+        return "updated"
     now = datetime.now(timezone.utc)
     try:
         onset   = datetime.fromisoformat(w["onset"].replace("Z", "+00:00"))
         expires = datetime.fromisoformat(w["expires"].replace("Z", "+00:00"))
     except Exception:
         return "unknown"
-    if w.get("is_updated"):
-        return "updated"
     if now < onset:
         return "pending"
     if now > expires:
@@ -183,15 +187,50 @@ def create_warning(warning: WarningCreate):
 
 
 @app.get("/api/warnings")
-def list_warnings(include_expired: bool = Query(False)):
+def list_warnings(
+    include_archived: bool = Query(True, description="Uwzględnij anulowane i zastąpione (archiwum)"),
+    include_expired:  bool = Query(False),
+):
+    """
+    Zwraca listę ostrzeżeń.
+    - include_archived=true  → historia zawiera cancelled + updated (archiwum)
+    - include_expired=false  → ukrywa naturalnie wygasłe
+    Anulowane i zastąpione są ZAWSZE widoczne w historii (archiwum CAP).
+    """
     warnings = list(WARNINGS_DB.values())
-    # Aktualizuj statusy dynamicznie
     for w in warnings:
         w["status"] = _compute_status(w)
-    if not include_expired:
-        warnings = [w for w in warnings if w["status"] != "expired"]
-    warnings.sort(key=lambda x: x.get("onset", ""), reverse=True)
-    return {"warnings": warnings, "count": len(warnings)}
+
+    result = []
+    for w in warnings:
+        st = w["status"]
+        if st == "expired" and not include_expired:
+            continue
+        result.append(w)
+
+    result.sort(key=lambda x: x.get("onset", ""), reverse=True)
+    return {"warnings": result, "count": len(result)}
+
+
+@app.delete("/api/warnings/{warning_id}")
+def delete_warning(warning_id: str):
+    """
+    Usuwa ostrzeżenie z bazy.
+    Ostrzeżeń aktywnych/nadchodzących NIE MOŻNA usunąć — należy je najpierw anulować.
+    """
+    w = WARNINGS_DB.get(warning_id)
+    if not w:
+        raise HTTPException(404, "Warning not found")
+    status = _compute_status(w)
+    if status in ("active", "pending"):
+        raise HTTPException(
+            409,
+            "Nie można usunąć aktywnego/nadchodzącego ostrzeżenia. "
+            "Najpierw wydaj CAP Cancel, a następnie usuń z historii."
+        )
+    del WARNINGS_DB[warning_id]
+    save_warnings()
+    return {"deleted": warning_id}
 
 
 @app.get("/api/warnings/active")
@@ -208,6 +247,59 @@ def get_active_warnings():
     return {"warnings": result, "count": len(result)}
 
 
+@app.get("/api/warnings/default-texts")
+def get_default_texts(
+    phenomenon: str = Query(...),
+    level: int = Query(...),
+    params: str = Query(default="{}")
+):
+    """
+    Zwraca domyślne teksty dla danego zjawiska i stopnia.
+    - description: opis meteorologiczny z warning_texts.py (z podstawionymi parametrami)
+    - impacts:     spodziewane skutki z phenomenon_config.py (lista punktów)
+    - instruction: zalecenia z phenomenon_config.py (lista punktów)
+    """
+    import json
+    from app.data.warning_texts import WARNING_CONFIG
+    from app.data.phenomenon_config import PHENOMENON_IMPACTS, PHENOMENON_INSTRUCTIONS
+    from app.services.cap_generator import _fmt_params
+
+    cfg = WARNING_CONFIG.get(phenomenon)
+    if not cfg:
+        raise HTTPException(404, f"Zjawisko '{phenomenon}' nie znalezione")
+    level_cfg = cfg.get("levels", {}).get(level)
+    if not level_cfg:
+        raise HTTPException(404, f"Brak konfiguracji stopnia {level} dla '{phenomenon}'")
+
+    # Opis meteorologiczny — podstaw parametry z suwaka
+    try:
+        params_dict = json.loads(params)
+    except Exception:
+        params_dict = {}
+    description = _fmt_params(level_cfg.get("description_pl", ""), params_dict)
+
+    # Skutki — z phenomenon_config (lepsze, punktowane)
+    impacts_list = PHENOMENON_IMPACTS.get(phenomenon, {}).get(level, [])
+    if impacts_list:
+        impacts = "\n".join(f"• {i}" for i in impacts_list)
+    else:
+        impacts = level_cfg.get("impacts_pl", "")
+
+    # Zalecenia — z phenomenon_config (lepsze, punktowane)
+    instructions_list = PHENOMENON_INSTRUCTIONS.get(phenomenon, {}).get(level, [])
+    if instructions_list:
+        instruction = "\n".join(f"• {i}" for i in instructions_list)
+    else:
+        instruction = level_cfg.get("instruction_pl", "")
+
+    return {
+        "phenomenon":  phenomenon,
+        "level":       level,
+        "description": description,
+        "impacts":     impacts,
+        "instruction": instruction,
+    }
+
 @app.get("/api/warnings/{warning_id}")
 def get_warning(warning_id: str):
     w = WARNINGS_DB.get(warning_id)
@@ -215,15 +307,6 @@ def get_warning(warning_id: str):
         raise HTTPException(404, "Warning not found")
     w["status"] = _compute_status(w)
     return w
-
-
-@app.delete("/api/warnings/{warning_id}")
-def delete_warning(warning_id: str):
-    if warning_id not in WARNINGS_DB:
-        raise HTTPException(404, "Warning not found")
-    del WARNINGS_DB[warning_id]
-    save_warnings()
-    return {"deleted": warning_id}
 
 
 @app.post("/api/warnings/{warning_id}/cancel")
@@ -243,6 +326,57 @@ def cancel_warning(warning_id: str):
         references_id=warning_id,
     )
     return create_warning(cancel_data)
+
+
+@app.put("/api/warnings/{warning_id}")
+def update_warning_inplace(warning_id: str, warning: WarningCreate):
+    """
+    Aktualizuj istniejące ostrzeżenie w miejscu (msgType=Update).
+
+    Stary rekord jest zachowany w historii z polem 'superseded_by'.
+    Nowy rekord zastępuje stary z nowym ID, references_id wskazuje na oryginał.
+    Zwraca nowe ostrzeżenie z zachowaną ciągłością (nowe ID, CAP msgType=Update).
+    """
+    orig = WARNINGS_DB.get(warning_id)
+    if not orig:
+        raise HTTPException(404, "Warning not found")
+
+    # Oblicz nowy level z nowych parametrów
+    new_level = determine_warning_level(warning.phenomenon, warning.params)
+    new_id = str(uuid.uuid4())
+
+    # Zbuduj nowy rekord
+    new_w = warning.model_dump()
+    new_w["id"]           = new_id
+    new_w["level"]        = new_level
+    new_w["created_at"]   = datetime.utcnow().isoformat()
+    new_w["msg_type"]     = "Update"
+    new_w["references_id"] = warning_id
+    new_w["status"]       = _compute_status(new_w)
+
+    try:
+        new_w["cap_xml"] = generate_cap_xml(new_w)
+    except Exception:
+        new_w["cap_xml"] = None
+
+    # Oznacz oryginał jako zastąpiony (zachowany w historii, nie wyświetlany)
+    orig["is_updated"]    = True
+    orig["superseded_by"] = new_id
+    orig["status"]        = "updated"
+
+    WARNINGS_DB[new_id] = new_w
+    save_warnings()
+
+    # Dystrybucja
+    if new_w.get("cap_xml"):
+        dispatch_webhooks_async(new_w["cap_xml"], new_id, warning_level=new_level)
+        _ph   = new_w.get("phenomenon", "ostrzezenie")
+        _lvl  = new_w.get("level", 1)
+        _ts   = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        _fname = f"IMGW_{_ph}_st{_lvl}_{_ts}_UPD.xml"
+        dispatch_all_async(new_w["cap_xml"], _fname, new_w)
+
+    return WarningDB(**new_w)
 
 
 @app.get("/api/warnings/{warning_id}/xml")
@@ -310,6 +444,206 @@ def get_phenomena_config():
             "instructions": PHENOMENON_INSTRUCTIONS.get(pid, {}),
         }
     return result
+
+
+
+# ============================================================
+# IMPORT — z API IMGW danepubliczne.imgw.pl
+# ============================================================
+
+# Mapowanie nazw zjawisk IMGW → nasze klucze phenomenon
+_IMGW_PHENOMENON_MAP = {
+    "Burze":                             "burze",
+    "Deszcz":                            "intensywne_opady_deszczu",
+    "Intensywne opady deszczu":          "intensywne_opady_deszczu",
+    "Intensywne opady śniegu":           "intensywne_opady_sniegu",
+    "Intensywne opady sniegu":           "intensywne_opady_sniegu",
+    "Mgła intensywnie osadzająca szadź": "mgla_szadz",
+    "Mgla intensywnie osadzajaca szadz": "mgla_szadz",
+    "Gęsta mgła":                        "gesta_mgla",
+    "Gesta mgla":                        "gesta_mgla",
+    "Oblodzenie":                        "oblodzenie",
+    "Opady marznące":                    "opady_marzniece",
+    "Opady marzniece":                   "opady_marzniece",
+    "Opady śniegu":                      "opady_sniegu",
+    "Opady sniegu":                      "opady_sniegu",
+    "Przymrozki":                        "przymrozki",
+    "Roztopy":                           "roztopy",
+    "Silny deszcz z burzami":            "silny_deszcz_z_burzami",
+    "Silny mróz":                        "silny_mroz",
+    "Silny mroz":                        "silny_mroz",
+    "Silny wiatr":                       "silny_wiatr",
+    "Upał":                              "upal",
+    "Upal":                              "upal",
+    "Zawieje i zamiecie śnieżne":        "zawieje_zamiecie",
+    "Zawieje i zamiecie sniezne":        "zawieje_zamiecie",
+    "Zawieje / zamiecie śnieżne":        "zawieje_zamiecie",
+}
+
+
+@app.get("/api/import/imgw")
+def import_from_imgw():
+    """
+    Pobiera aktualne ostrzeżenia z publicznego API IMGW-PIB i mapuje na naszą strukturę.
+    Nie zapisuje do bazy — zwraca listę gotową do przeglądu przez synoptyka.
+    Źródło: https://danepubliczne.imgw.pl/api/data/warningsmeteo
+    """
+    import urllib.request
+    from app.data.phenomenon_config import PHENOMENON_IMPACTS, PHENOMENON_INSTRUCTIONS
+    from app.data.warning_texts import WARNING_CONFIG
+
+    IMGW_API_URL = "https://danepubliczne.imgw.pl/api/data/warningsmeteo"
+
+    # Pobierz dane z API IMGW
+    try:
+        req = urllib.request.Request(
+            IMGW_API_URL,
+            headers={"User-Agent": "MeteoCAP-Editor/2.0 IMGW-PIB"}
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        raise HTTPException(502, f"Błąd pobierania danych z API IMGW: {e}")
+
+    # Zbuduj lookup powiatów TERYT → dane
+    county_by_teryt = {c["id"]: c for c in COUNTIES_DATA}
+
+    imported = []
+    skipped  = []
+
+    for w in raw:
+        # Mapuj zjawisko
+        nazwa = w.get("nazwa_zdarzenia", "")
+        phenomenon = _IMGW_PHENOMENON_MAP.get(nazwa)
+        if not phenomenon:
+            skipped.append({"id": w.get("id"), "reason": f"Nieznane zjawisko: '{nazwa}'"})
+            continue
+
+        # Stopień
+        try:
+            level = int(w.get("stopien", 1))
+        except (ValueError, TypeError):
+            level = 1
+
+        # Powiaty z TERYT
+        teryt_list = w.get("teryt", [])
+        counties = []
+        for t in teryt_list:
+            c = county_by_teryt.get(str(t))
+            if c:
+                counties.append({
+                    "id":        c["id"],
+                    "name":      c["name"],
+                    "voiv_id":   c["voiv_id"],
+                    "voiv_name": c["voiv_name"],
+                    "lat":       c["lat"],
+                    "lon":       c["lon"],
+                })
+
+        # Czasy — konwertuj z "YYYY-MM-DD HH:MM:SS" na ISO
+        def _to_iso(s):
+            """Konwertuje czas lokalny PL (CEST=UTC+2 lub CET=UTC+1) na UTC ISO."""
+            if not s:
+                return None
+            try:
+                from datetime import datetime, timedelta
+                import time as _time
+                dt_local = datetime.strptime(str(s), "%Y-%m-%d %H:%M:%S")
+                # Ustal offset: CEST (marzec-październik) = UTC+2, CET = UTC+1
+                month = dt_local.month
+                utc_offset = 2 if 3 <= month <= 10 else 1
+                dt_utc = dt_local - timedelta(hours=utc_offset)
+                return dt_utc.strftime("%Y-%m-%dT%H:%M:00Z")
+            except Exception:
+                return str(s)
+
+        onset   = _to_iso(w.get("obowiazuje_od"))
+        expires = _to_iso(w.get("obowiazuje_do"))
+
+        # Treść z IMGW jako opis przebiegu
+        description = w.get("tresc", "")
+
+        # Skutki i zalecenia z naszego zasobu (phenomenon_config.py)
+        impacts_list = PHENOMENON_IMPACTS.get(phenomenon, {}).get(level, [])
+        impacts      = "\n".join(f"• {i}" for i in impacts_list) if impacts_list else ""
+
+        instructions_list = PHENOMENON_INSTRUCTIONS.get(phenomenon, {}).get(level, [])
+        instruction = "\n".join(f"• {i}" for i in instructions_list) if instructions_list else ""
+
+        # Nagłówek
+        from app.services.warning_levels import PHENOMENON_LABELS
+        ph_label = PHENOMENON_LABELS.get(phenomenon, nazwa)
+        headline = f"Ostrzeżenie meteorologiczne {level}° — {ph_label}"
+
+        imported.append({
+            "imgw_id":     w.get("id"),
+            "phenomenon":  phenomenon,
+            "level":       level,
+            "onset":       onset,
+            "expires":     expires,
+            "headline":    headline,
+            "description": description,
+            "impacts":     impacts,
+            "instruction": instruction,
+            "counties":    counties,
+            "county_count": len(counties),
+            "biuro":       w.get("biuro", ""),
+            "prawdopodobienstwo": w.get("prawdopodobienstwo"),
+            "msg_type":    "Alert",
+        })
+
+    return {
+        "source":   IMGW_API_URL,
+        "count":    len(imported),
+        "skipped":  len(skipped),
+        "warnings": imported,
+        "skipped_details": skipped,
+    }
+
+
+@app.post("/api/import/imgw/save")
+def save_imgw_warnings(body: dict):
+    """
+    Zapisuje wybrane ostrzeżenia zaimportowane z IMGW do lokalnej bazy.
+    Body: { "warnings": [...] }  — lista z /api/import/imgw (pełna lub przefiltrowana).
+    """
+    warnings_to_save = body.get("warnings", [])
+    saved = []
+    for w in warnings_to_save:
+        wid   = str(uuid.uuid4())
+        level = w.get("level") or determine_warning_level(
+            w.get("phenomenon", ""), w.get("params", {})
+        ) or 1
+        new_w = {
+            "id":          wid,
+            "imgw_id":     w.get("imgw_id"),
+            "phenomenon":  w.get("phenomenon"),
+            "level":       level,
+            "status":      _compute_status({
+                "msg_type": "Alert",
+                "onset":    w.get("onset", ""),
+                "expires":  w.get("expires", ""),
+            }),
+            "msg_type":    "Alert",
+            "onset":       w.get("onset"),
+            "expires":     w.get("expires"),
+            "headline":    w.get("headline", ""),
+            "description": w.get("description", ""),
+            "impacts":     w.get("impacts", ""),
+            "instruction": w.get("instruction", ""),
+            "counties":    w.get("counties", []),
+            "params":      {},
+            "created_at":  datetime.utcnow().isoformat(),
+            "source":      "IMGW-API",
+        }
+        try:
+            new_w["cap_xml"] = generate_cap_xml(new_w)
+        except Exception:
+            new_w["cap_xml"] = None
+        WARNINGS_DB[wid] = new_w
+        saved.append(new_w)
+    save_warnings()
+    return {"saved": len(saved), "warnings": saved}
 
 
 # ============================================================
@@ -440,6 +774,33 @@ def clear_meteoalarm_cache(country: str = Query(None)):
     """Czyści cache MeteoAlarm."""
     invalidate_cache(country)
     return {"cleared": country or "all"}
+
+
+@app.get("/api/meteoalarm/geocodes/{country_code}")
+def get_meteoalarm_geocodes(country_code: str):
+    """
+    Zwraca GeoJSON z geokodami (poligonami EMMA_ID) dla danego kraju.
+    Używane przez frontend do wizualizacji warstwy MeteoAlarm na mapie.
+    Pliki GeoJSON serwowane są z katalogu frontend/public/ przez nginx (preferable),
+    ale ten endpoint jest fallbackiem gdy nginx nie obsługuje .geojson.
+    """
+    valid_countries = {"PL", "DE", "CZ", "SK", "LT", "UA", "BY"}
+    cc = country_code.upper()
+    if cc not in valid_countries:
+        raise HTTPException(400, f"Nieznany kraj: {cc}")
+
+    # Szukaj pliku w kilku lokalizacjach
+    search_paths = [
+        f"/app/frontend_static/geocodes_{cc}.geojson",   # nginx static (prod)
+        f"/home/app/frontend/public/geocodes_{cc}.geojson",
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "frontend", "public", f"geocodes_{cc}.geojson"),
+    ]
+    for path in search_paths:
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                return JSONResponse(content=json.load(f))
+
+    raise HTTPException(404, f"Brak pliku geokodów dla kraju {cc}")
 
 
 # ============================================================
