@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
+import { WarningTreeView } from '../editor/WarningsList';
 
 const API = import.meta.env.VITE_API_URL || '/api';
 
@@ -12,28 +13,7 @@ const STATUS_COLORS = {
 };
 
 const LEVEL_COLORS  = { 1: '#facc15', 2: '#f97316', 3: '#ef4444' };
-const LEVEL_BORDERS = { 1: '#b8960a', 2: '#c45f00', 3: '#9a0000' };
-
-function convexHull(pts) {
-  if (pts.length < 3) return pts;
-  const cross = (O, A, B) =>
-    (A[0]-O[0])*(B[1]-O[1]) - (A[1]-O[1])*(B[0]-O[0]);
-  const sorted = [...pts].sort((a,b) => a[0]-b[0] || a[1]-b[1]);
-  const lower = [];
-  for (const p of sorted) {
-    while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], p) <= 0)
-      lower.pop();
-    lower.push(p);
-  }
-  const upper = [];
-  for (let i = sorted.length-1; i >= 0; i--) {
-    const p = sorted[i];
-    while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], p) <= 0)
-      upper.pop();
-    upper.push(p);
-  }
-  return [...lower.slice(0,-1), ...upper.slice(0,-1)];
-}
+const LEVEL_BORDERS = { 1: '#a16207', 2: '#9a3412', 3: '#7f1d1d' };
 
 const PHENOMENON_LABELS_SHORT = {
   burze: 'Burze',
@@ -53,11 +33,20 @@ const PHENOMENON_LABELS_SHORT = {
   przymrozki: 'Przymrozki',
 };
 
-export default function StatusView({ warnings, onRefresh }) {
+export default function StatusView({ warnings, onRefresh, onEdit }) {
   const [phenomenaConfig, setPhenomenaConfig] = useState({});
   const [labelMode, setLabelMode] = useState('icon'); // icon | text | both
-  const [filterStatus, setFilterStatus] = useState('all'); // all | active | pending
+  const [filterStatus, setFilterStatus] = useState('active_only'); // active_only | all
+
+  // Aktywne = aktywny liść drzewa wersji (nie zastąpione, nie anulowane)
+  const isActiveWarning = (w) =>
+    w.is_active_leaf !== false &&
+    !w.is_cancelled &&
+    w.status !== 'updated' &&
+    w.status !== 'cancelled' &&
+    (w.status === 'active' || w.status === 'pending' || !w.status);
   const [selectedWarning, setSelectedWarning] = useState(null);
+  const [treeWarning, setTreeWarning] = useState(null);
   const mapRef = useRef(null);
   const leafletMap = useRef(null);
   const markersRef = useRef([]);
@@ -118,7 +107,7 @@ export default function StatusView({ warnings, onRefresh }) {
     }));
 
     const filtered = warnings.filter(w =>
-      filterStatus === 'all' ? true : w.status === filterStatus
+      filterStatus === 'all' ? true : isActiveWarning(w)
     );
 
     filtered.forEach(warning => {
@@ -132,15 +121,15 @@ export default function StatusView({ warnings, onRefresh }) {
       counties.forEach(c => {
         const layer = countyLayers.current[c.id];
         if (layer) {
-          const borderColor = LEVEL_BORDERS[warning.level] || lvlColor;
           layer.setStyle({
-            color: borderColor, fillColor: lvlColor, fillOpacity: 0.38,
+            color: lvlColor, fillColor: lvlColor, fillOpacity: 0.38,
             weight: isDashed ? 1.5 : 2.5, dashArray: isDashed ? '6,4' : null,
           });
           layer.bindTooltip(
             `<b>${icon} ${label}</b> — stopień ${warning.level}<br><span style="opacity:.8">${c.name} (${c.voiv_name})</span>`,
             { className: 'map-county-tooltip' }
           );
+          layer.off('click');
           layer.on('click', () => setSelectedWarning(warning));
         }
       });
@@ -163,29 +152,12 @@ export default function StatusView({ warnings, onRefresh }) {
 
       const marker = L.marker([clat, clon], {
         icon: L.divIcon({ html: iconHtml, iconSize: null, className: '', iconAnchor: [0, 0] }),
-        zIndexOffset: 400, interactive: false,
+        zIndexOffset: 500, interactive: true,
       });
+      marker.on('click', () => setSelectedWarning(warning));
       marker.addTo(map);
       markersRef.current.push(marker);
 
-      // Obrys zewnętrzny grupy powiatów — convex hull centroidów
-      if (lats.length >= 3) {
-        const pts = lats.map((lat,i) => [lat, lons[i]]);
-        const hull = convexHull(pts);
-        if (hull.length >= 3) {
-          const outline = L.polygon(hull, {
-            color: LEVEL_BORDERS[warning.level] || lvlColor,
-            fillColor: 'transparent',
-            fillOpacity: 0,
-            weight: 3,
-            dashArray: isDashed ? '8,5' : null,
-            opacity: 0.85,
-            smoothFactor: 1.5,
-          });
-          outline.addTo(map);
-          markersRef.current.push(outline);
-        }
-      }
     });
   }, [warnings, labelMode, filterStatus, phenomenaConfig, L, layersLoaded]);
 
@@ -193,53 +165,88 @@ export default function StatusView({ warnings, onRefresh }) {
     setExporting(true);
     try {
       const map = leafletMap.current;
-      if (!map) return;
+      if (!map || !Object.keys(countyLayers.current).length) {
+        setExporting(false); return;
+      }
 
-      // Dopasuj widok do granic Polski i poczekaj na re-render
-      const polandBounds = [[49.0, 14.1], [54.9, 24.2]];
-      map.fitBounds(polandBounds, { padding: [20, 20], animate: false });
-      await new Promise(r => setTimeout(r, 600));
+      // Dopasuj do Polski i poczekaj
+      map.fitBounds([[49.0, 14.1], [54.9, 24.2]], { padding: [30, 30], animate: false });
+      await new Promise(r => setTimeout(r, 800));
 
       const container = map.getContainer();
-      const w = container.offsetWidth;
-      const h = container.offsetHeight;
+      const W = container.offsetWidth;
+      const H = container.offsetHeight;
+
+      // Oblicz rzeczywisty bounding box Polski na ekranie
+      let minX=W, maxX=0, minY=H, maxY=0;
+      Object.values(countyLayers.current).forEach(layer => {
+        try {
+          const b = layer.getBounds();
+          const sw = map.latLngToContainerPoint(b.getSouthWest());
+          const ne = map.latLngToContainerPoint(b.getNorthEast());
+          minX = Math.min(minX, sw.x, ne.x);
+          maxX = Math.max(maxX, sw.x, ne.x);
+          minY = Math.min(minY, sw.y, ne.y);
+          maxY = Math.max(maxY, sw.y, ne.y);
+        } catch(e) {}
+      });
+      const pad = 20;
+      minX = Math.max(0, minX-pad); minY = Math.max(0, minY-pad);
+      maxX = Math.min(W, maxX+pad); maxY = Math.min(H, maxY+pad);
+      const w = maxX-minX, h = maxY-minY;
 
       const filtered = warnings.filter(ww =>
-        filterStatus === 'all' || ww.status === filterStatus
+        filterStatus === 'all' || isActiveWarning(ww)
       );
 
-      let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">`;
-      svgContent += `<rect width="${w}" height="${h}" fill="#060a12"/>`;
-      svgContent += `<text x="10" y="18" fill="#8ca0c0" font-size="10" font-family="monospace">MeteoCAP — Mapa ostrzeżeń © IMGW-PIB | © CARTO © OSM</text>`;
+      // Pomocnicza: spłaszcz getLatLngs do listy ringów
+      const getRings = (layer) => {
+        const ll = layer.getLatLngs();
+        if (!ll || !ll.length) return [];
+        // Polygon: [[LatLng,...]]  MultiPolygon: [[[LatLng,...]],...]
+        if (ll[0] && ll[0][0] && typeof ll[0][0].lat === 'number') return [ll[0]];
+        if (ll[0] && ll[0][0] && Array.isArray(ll[0][0])) return ll[0];
+        if (ll[0] && typeof ll[0].lat === 'number') return [ll];
+        return [ll[0]];
+      };
 
-      // Rysuj poligony powiatów
+      let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" style="background:#060a12">`;
+      svg += `<rect width="${w}" height="${h}" fill="#060a12"/>`;
+      svg += `<text x="8" y="14" fill="#6080a0" font-size="9" font-family="monospace">MeteoCAP © IMGW-PIB</text>`;
+
+      // Warstwa 1: wszystkie powiaty (szare tło — bez dziur)
       Object.entries(countyLayers.current).forEach(([countyId, layer]) => {
         try {
-          const latlngs = layer.getLatLngs();
-          if (!latlngs || !latlngs[0]) return;
-          const ring = Array.isArray(latlngs[0]) ? latlngs[0] : latlngs;
-
-          // Sprawdź czy powiat należy do ostrzeżenia
-          const warn = filtered.find(ww =>
-            (ww.counties || []).some(c => String(c.id) === String(countyId))
-          );
-
-          const pts = ring.map(ll => {
-            const p = map.latLngToContainerPoint(ll);
-            return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
-          }).join(' ');
-
-          if (warn) {
-            const col = LEVEL_COLORS[warn.level] || '#facc15';
-            const bdr = LEVEL_BORDERS[warn.level] || col;
-            svgContent += `<polygon points="${pts}" fill="${col}" fill-opacity="0.38" stroke="${bdr}" stroke-width="1.5"/>`;
-          } else {
-            svgContent += `<polygon points="${pts}" fill="rgba(59,130,246,0.03)" stroke="rgba(59,130,246,0.2)" stroke-width="0.4"/>`;
-          }
+          getRings(layer).forEach(ring => {
+            const pts = ring.map(ll => {
+              const p = map.latLngToContainerPoint(ll);
+              return `${(p.x-minX).toFixed(1)},${(p.y-minY).toFixed(1)}`;
+            }).join(' ');
+            svg += `<polygon points="${pts}" fill="#1a2035" stroke="#2a3555" stroke-width="0.4"/>`;
+          });
         } catch(e) {}
       });
 
-      // Labele ostrzeżeń
+      // Warstwa 2: powiaty z ostrzeżeniami
+      Object.entries(countyLayers.current).forEach(([countyId, layer]) => {
+        const warn = filtered.find(ww =>
+          (ww.counties || []).some(c => String(c.id) === String(countyId))
+        );
+        if (!warn) return;
+        const col = LEVEL_COLORS[warn.level] || '#facc15';
+        const bdr = LEVEL_BORDERS[warn.level] || col;
+        try {
+          getRings(layer).forEach(ring => {
+            const pts = ring.map(ll => {
+              const p = map.latLngToContainerPoint(ll);
+              return `${(p.x-minX).toFixed(1)},${(p.y-minY).toFixed(1)}`;
+            }).join(' ');
+            svg += `<polygon points="${pts}" fill="${col}" fill-opacity="0.5" stroke="${bdr}" stroke-width="1.2"/>`;
+          });
+        } catch(e) {}
+      });
+
+      // Warstwa 3: labele
       filtered.forEach(warning => {
         const icon = phenomenaConfig[warning.phenomenon]?.icon || '⚠';
         const label = PHENOMENON_LABELS_SHORT[warning.phenomenon] || warning.phenomenon;
@@ -251,51 +258,60 @@ export default function StatusView({ warnings, onRefresh }) {
         const clat = lats.reduce((a,b)=>a+b,0)/lats.length;
         const clon = lons.reduce((a,b)=>a+b,0)/lons.length;
         const p = map.latLngToContainerPoint([clat, clon]);
-        const x = Math.round(p.x), y = Math.round(p.y);
-        svgContent += `<text x="${x}" y="${y+5}" text-anchor="middle" font-size="16">${icon}</text>`;
-        svgContent += `<rect x="${x-22}" y="${y+8}" width="44" height="13" rx="3" fill="${col}" fill-opacity="0.9"/>`;
-        svgContent += `<text x="${x}" y="${y+18}" text-anchor="middle" font-size="8" font-weight="bold" fill="#000">${label} ${warning.level}°</text>`;
+        const x = Math.round(p.x-minX), y = Math.round(p.y-minY);
+        const txt = `${label} ${warning.level}°`;
+        const tw = txt.length * 5.5 + 10;
+        svg += `<text x="${x}" y="${y+4}" text-anchor="middle" font-size="15">${icon}</text>`;
+        svg += `<rect x="${x-tw/2}" y="${y+7}" width="${tw}" height="13" rx="3" fill="${col}" fill-opacity="0.92"/>`;
+        svg += `<text x="${x}" y="${y+17}" text-anchor="middle" font-size="8" font-weight="bold" fill="#000">${txt}</text>`;
       });
 
       // Legenda
-      const lx = w-155, ly = h-85;
-      svgContent += `<rect x="${lx}" y="${ly}" width="150" height="80" rx="5" fill="rgba(6,10,18,0.88)" stroke="rgba(100,140,220,0.3)" stroke-width="1"/>`;
-      svgContent += `<text x="${lx+8}" y="${ly+16}" fill="#e4ecf8" font-size="11" font-weight="bold" font-family="sans-serif">Legenda</text>`;
+      const lx = w-120, ly = h-72;
+      svg += `<rect x="${lx-4}" y="${ly-4}" width="120" height="72" rx="4" fill="rgba(6,10,18,0.88)" stroke="#2a3555" stroke-width="1"/>`;
+      svg += `<text x="${lx}" y="${ly+10}" fill="#e4ecf8" font-size="10" font-weight="bold" font-family="sans-serif">Legenda</text>`;
       [[1,'#facc15','Stopień 1'],[2,'#f97316','Stopień 2'],[3,'#ef4444','Stopień 3']].forEach(([lvl,col,lbl],i) => {
-        const cy = ly+30+i*18;
-        svgContent += `<rect x="${lx+8}" y="${cy-7}" width="14" height="14" rx="2" fill="${col}" fill-opacity="0.4" stroke="${LEVEL_BORDERS[lvl]}" stroke-width="1.5"/>`;
-        svgContent += `<text x="${lx+28}" y="${cy+4}" fill="#e4ecf8" font-size="10" font-family="sans-serif">${lbl}</text>`;
+        const cy = ly+22+i*16;
+        svg += `<rect x="${lx}" y="${cy-5}" width="12" height="12" rx="2" fill="${col}" fill-opacity="0.5" stroke="${LEVEL_BORDERS[lvl]}" stroke-width="1.2"/>`;
+        svg += `<text x="${lx+16}" y="${cy+5}" fill="#e4ecf8" font-size="9" font-family="sans-serif">${lbl}</text>`;
       });
-
-      svgContent += '</svg>';
+      svg += '</svg>';
 
       const canvas = document.createElement('canvas');
       canvas.width = w; canvas.height = h;
       const ctx = canvas.getContext('2d');
-      const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
       const url = URL.createObjectURL(blob);
       const img = new Image();
       img.onload = () => {
         ctx.drawImage(img, 0, 0);
         URL.revokeObjectURL(url);
         canvas.toBlob(pngBlob => {
-          const link = document.createElement('a');
-          link.download = `meteocap_${new Date().toISOString().slice(0,10)}.png`;
-          link.href = URL.createObjectURL(pngBlob);
-          link.click();
-          URL.revokeObjectURL(link.href);
+          const a = document.createElement('a');
+          a.download = `meteocap_${new Date().toISOString().slice(0,10)}.png`;
+          a.href = URL.createObjectURL(pngBlob);
+          a.click(); URL.revokeObjectURL(a.href);
           setExporting(false);
         }, 'image/png');
       };
       img.onerror = () => setExporting(false);
       img.src = url;
-    } catch (e) {
-      console.error('Export error:', e);
-      setExporting(false);
-    }
+    } catch(e) { console.error(e); setExporting(false); }
   }, [warnings, filterStatus, labelMode, phenomenaConfig]);
-  const activeCount  = warnings.filter(w => w.status === 'active').length;
-  const pendingCount = warnings.filter(w => w.status === 'pending').length;
+  const activeCount  = warnings.filter(w => isActiveWarning(w)).length;
+  const pendingCount = warnings.filter(w => w.status === 'pending' && isActiveWarning(w)).length;
+
+  const handleExportPDF = async (lang = 'pl') => {
+    try {
+      const res = await axios.get(`${API}/export/pdf?lang=${lang}`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `meteocap_raport${lang==='en'?'_en':''}_${new Date().toISOString().slice(0,10)}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch(e) { alert(`Błąd PDF: ${e.message}`); }
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -333,9 +349,8 @@ export default function StatusView({ warnings, onRefresh }) {
             border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
             color: 'var(--text-primary)', fontSize: 11, cursor: 'pointer',
           }}>
-          <option value="all">Wszystkie</option>
-          <option value="active">Aktywne</option>
-          <option value="pending">Nadchodzące</option>
+          <option value="active_only">Aktywne (bez zastąpionych)</option>
+          <option value="all">Wszystkie (w tym zastąpione i archiwum)</option>
         </select>
 
         <button onClick={onRefresh}
@@ -345,6 +360,20 @@ export default function StatusView({ warnings, onRefresh }) {
             color: 'var(--text-secondary)', fontSize: 11, cursor: 'pointer',
           }}>
           ↻ Odśwież
+        </button>
+
+        {/* PDF eksport — tu gdzie patrzy dyżurny synoptyk */}
+        <button onClick={() => handleExportPDF('pl')}
+          style={{padding:'4px 10px',borderRadius:'var(--radius-sm)',fontSize:11,cursor:'pointer',
+            border:'1px solid var(--accent-blue)',background:'rgba(59,130,246,0.1)',
+            color:'var(--text-accent)'}}>
+          📄 PDF PL
+        </button>
+        <button onClick={() => handleExportPDF('en')}
+          style={{padding:'4px 10px',borderRadius:'var(--radius-sm)',fontSize:11,cursor:'pointer',
+            border:'1px solid var(--accent-blue)',background:'rgba(59,130,246,0.1)',
+            color:'var(--text-accent)'}}>
+          📄 PDF EN
         </button>
 
         <button onClick={handleExportPNG} disabled={exporting}
@@ -393,6 +422,32 @@ export default function StatusView({ warnings, onRefresh }) {
                   cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>✕</button>
             </div>
 
+            {/* Akcje */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10, paddingBottom: 10,
+              borderBottom: '1px solid var(--border)' }}>
+              {onEdit && selectedWarning.is_active_leaf !== false && !selectedWarning.is_cancelled && (
+                <button onClick={() => onEdit(selectedWarning.id)}
+                  style={{ flex: 1, fontSize: 11, padding: '6px 10px',
+                    background: 'var(--accent-blue)', color: '#000', border: 'none',
+                    borderRadius: 'var(--radius-md)', cursor: 'pointer', fontWeight: 600 }}>
+                  ✎ Edytuj (Update)
+                </button>
+              )}
+              <button onClick={() => setTreeWarning(selectedWarning)}
+                style={{ flex: 1, fontSize: 11, padding: '6px 10px',
+                  background: 'var(--bg-elevated)', color: 'var(--text-secondary)',
+                  border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
+                  cursor: 'pointer' }}>
+                🌳 Drzewo wersji
+                {selectedWarning.version > 1 && (
+                  <span style={{marginLeft:6,padding:'1px 5px',background:'var(--accent-blue)',
+                    color:'#000',borderRadius:8,fontSize:9,fontWeight:700}}>
+                    v{selectedWarning.version}
+                  </span>
+                )}
+              </button>
+            </div>
+
             {/* Czas ważności */}
             <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)',
               marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid var(--border)' }}>
@@ -422,33 +477,63 @@ export default function StatusView({ warnings, onRefresh }) {
               </div>
             )}
 
+            {/* Opis przebiegu */}
+            {selectedWarning.description && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 10, color: 'var(--accent-blue)', textTransform: 'uppercase',
+                  letterSpacing: '0.08em', marginBottom: 4 }}>📋 Przebieg</div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5,
+                  fontStyle: 'italic' }}>
+                  {selectedWarning.description}
+                </div>
+              </div>
+            )}
+
             {/* Skutki */}
-            {phenomenaConfig[selectedWarning.phenomenon]?.impacts?.[selectedWarning.level] && (
+            {(selectedWarning.impacts || phenomenaConfig[selectedWarning.phenomenon]?.impacts?.[selectedWarning.level]) && (
               <div style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 10, color: 'var(--warn-2)', textTransform: 'uppercase',
                   letterSpacing: '0.08em', marginBottom: 4 }}>⚡ Spodziewane skutki</div>
-                {phenomenaConfig[selectedWarning.phenomenon].impacts[selectedWarning.level].map((imp, i) => (
-                  <div key={i} style={{ fontSize: 11, color: 'var(--text-secondary)',
-                    paddingLeft: 10, marginBottom: 3, position: 'relative' }}>
-                    <span style={{ position: 'absolute', left: 0, color: 'var(--warn-2)' }}>·</span>
-                    {imp}
-                  </div>
-                ))}
+                {selectedWarning.impacts
+                  ? selectedWarning.impacts.split('\n').filter(l => l.trim()).map((imp, i) => (
+                    <div key={i} style={{ fontSize: 11, color: 'var(--text-secondary)',
+                      paddingLeft: 10, marginBottom: 3, position: 'relative' }}>
+                      <span style={{ position: 'absolute', left: 0, color: 'var(--warn-2)' }}>·</span>
+                      {imp.replace(/^•\s*/, '')}
+                    </div>
+                  ))
+                  : phenomenaConfig[selectedWarning.phenomenon]?.impacts?.[selectedWarning.level]?.map((imp, i) => (
+                    <div key={i} style={{ fontSize: 11, color: 'var(--text-secondary)',
+                      paddingLeft: 10, marginBottom: 3, position: 'relative' }}>
+                      <span style={{ position: 'absolute', left: 0, color: 'var(--warn-2)' }}>·</span>
+                      {imp}
+                    </div>
+                  ))
+                }
               </div>
             )}
 
             {/* Instrukcje */}
-            {phenomenaConfig[selectedWarning.phenomenon]?.instructions?.[selectedWarning.level] && (
+            {(selectedWarning.instruction || phenomenaConfig[selectedWarning.phenomenon]?.instructions?.[selectedWarning.level]) && (
               <div>
                 <div style={{ fontSize: 10, color: 'var(--success)', textTransform: 'uppercase',
                   letterSpacing: '0.08em', marginBottom: 4 }}>✓ Co robić</div>
-                {phenomenaConfig[selectedWarning.phenomenon].instructions[selectedWarning.level].map((ins, i) => (
-                  <div key={i} style={{ fontSize: 11, color: 'var(--text-secondary)',
-                    paddingLeft: 10, marginBottom: 3, position: 'relative' }}>
-                    <span style={{ position: 'absolute', left: 0, color: 'var(--success)' }}>✓</span>
-                    {ins}
-                  </div>
-                ))}
+                {selectedWarning.instruction
+                  ? selectedWarning.instruction.split('\n').filter(l => l.trim()).map((ins, i) => (
+                    <div key={i} style={{ fontSize: 11, color: 'var(--text-secondary)',
+                      paddingLeft: 10, marginBottom: 3, position: 'relative' }}>
+                      <span style={{ position: 'absolute', left: 0, color: 'var(--success)' }}>✓</span>
+                      {ins.replace(/^•\s*/, '')}
+                    </div>
+                  ))
+                  : phenomenaConfig[selectedWarning.phenomenon]?.instructions?.[selectedWarning.level]?.map((ins, i) => (
+                    <div key={i} style={{ fontSize: 11, color: 'var(--text-secondary)',
+                      paddingLeft: 10, marginBottom: 3, position: 'relative' }}>
+                      <span style={{ position: 'absolute', left: 0, color: 'var(--success)' }}>✓</span>
+                      {ins}
+                    </div>
+                  ))
+                }
               </div>
             )}
           </div>
@@ -459,6 +544,31 @@ export default function StatusView({ warnings, onRefresh }) {
       {warnings.length === 0 && (
         <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
           Brak ostrzeżeń do wyświetlenia
+        </div>
+      )}
+
+      {/* Modal drzewa wersji */}
+      {treeWarning && (
+        <div style={{position:'fixed',inset:0,zIndex:9100,background:'rgba(0,0,0,0.75)',
+          display:'flex',alignItems:'center',justifyContent:'center'}}
+          onClick={()=>setTreeWarning(null)}>
+          <div style={{width:'min(95vw,800px)',maxHeight:'90vh',overflowY:'auto',
+            background:'var(--bg-surface)',border:'1px solid var(--border)',
+            borderRadius:'var(--radius-lg)',boxShadow:'0 8px 64px rgba(0,0,0,0.8)'}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{padding:'14px 18px',borderBottom:'1px solid var(--border)',
+              display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div style={{fontSize:14,fontWeight:700,color:'var(--text-primary)'}}>
+                🌳 Drzewo wersji ostrzeżenia
+              </div>
+              <button onClick={()=>setTreeWarning(null)}
+                style={{background:'none',border:'none',color:'var(--text-muted)',
+                  cursor:'pointer',fontSize:20,lineHeight:1}}>✕</button>
+            </div>
+            <div style={{padding:'14px 18px'}}>
+              <WarningTreeView warningId={treeWarning.id} />
+            </div>
+          </div>
         </div>
       )}
     </div>

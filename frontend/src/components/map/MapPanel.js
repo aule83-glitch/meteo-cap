@@ -3,7 +3,8 @@ import axios from 'axios';
 import { getMapState, setMapState, saveMapPosition } from '../../utils/mapState';
 
 const MA_LEVEL_COLORS = { 1: '#facc15', 2: '#f97316', 3: '#ef4444' };
-const MA_COUNTRY_BORDER = { DE:'#3b82f6', CZ:'#22c55e', SK:'#a78bfa', UA:'#fbbf24', LT:'#fb923c', BY:'#f43f5e' };
+const MA_COUNTRY_BORDER = { DE:'#3b82f6', CZ:'#22c55e', SK:'#a78bfa', UA:'#fbbf24', LT:'#fb923c',
+  RU_KGD:'#9ca3af', BY:'#9ca3af' };  // RU/BY — szare, poglądowe
 
 const API = import.meta.env.VITE_API_URL || '/api';
 
@@ -14,29 +15,8 @@ const POLY_STYLE   = { color: '#06b6d4', fillColor: 'rgba(6,182,212,0.1)', fillO
 const HIGHLIGHT_STYLE = { color: '#a78bfa', fillColor: 'rgba(167,139,250,0.2)', fillOpacity: 1, weight: 2.5 };
 
 const LEVEL_COLORS  = { 1: '#facc15', 2: '#f97316', 3: '#ef4444' };
-const LEVEL_BORDERS = { 1: '#b8960a', 2: '#c45f00', 3: '#9a0000' };
+const LEVEL_BORDERS = { 1: '#a16207', 2: '#9a3412', 3: '#7f1d1d' };  // ciemniejsze obramowania dla kontrastu
 
-// Convex hull — obrys zewnętrzny grupy centroidów [[lat,lon],...]
-function convexHull(pts) {
-  if (pts.length < 3) return pts;
-  const cross = (O, A, B) =>
-    (A[0]-O[0])*(B[1]-O[1]) - (A[1]-O[1])*(B[0]-O[0]);
-  const sorted = [...pts].sort((a,b) => a[0]-b[0] || a[1]-b[1]);
-  const lower = [];
-  for (const p of sorted) {
-    while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], p) <= 0)
-      lower.pop();
-    lower.push(p);
-  }
-  const upper = [];
-  for (let i = sorted.length-1; i >= 0; i--) {
-    const p = sorted[i];
-    while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], p) <= 0)
-      upper.pop();
-    upper.push(p);
-  }
-  return [...lower.slice(0,-1), ...upper.slice(0,-1)];
-}
 
 const TILE_LAYERS = [
   { id: 'dark',     label: 'Ciemna',       icon: '🌑', url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attr: '© CARTO © OSM' },
@@ -93,7 +73,7 @@ export default function MapPanel({
   const [showPicker, setShowPicker] = useState(false);
   const [L, setL] = useState(null);
   const [maEnabled, setMaEnabled]       = useState(false);   // warstwa MeteoAlarm
-  const [maCountries, setMaCountries]   = useState(['DE','CZ','SK']);
+  const [maCountries, setMaCountries]   = useState(['DE','CZ','SK','UA','LT']); // MeteoAlarm; BY i RU_KGD domyślnie OFF — włącz ręcznie z ostrożnością
   const [maWarnings, setMaWarnings]     = useState([]);
   const [maLoading, setMaLoading]       = useState(false);
   const maLayersRef = useRef([]);
@@ -286,11 +266,14 @@ export default function MapPanel({
             border-radius:7px;padding:4px 8px;font-size:11px;font-weight:700;
             white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,0.45);
             display:flex;flex-direction:column;align-items:flex-start;gap:1px;
-            opacity:${isDashed?'0.82':'1'};min-width:90px;
+            opacity:${isDashed?'0.82':'1'};
           ">
             <div style="display:flex;align-items:center;gap:5px">
               <span style="font-size:17px;line-height:1">${icon}</span>
               <span>St.${w.level} ${label}</span>
+              ${w.operation_hint === 'escalate' ? '<span style="font-size:11px" title="Eskalacja">⬆</span>' : ''}
+              ${w.operation_hint === 'deescalate' ? '<span style="font-size:11px" title="Deeskalacja">⬇</span>' : ''}
+              ${(w.version || 1) > 1 ? `<span style="font-size:8px;opacity:0.6;font-family:monospace">v${w.version}</span>` : ''}
               <span style="font-size:9px;opacity:0.7">${statusDot}</span>
             </div>
             <div style="font-size:9px;opacity:0.8;font-weight:500;letter-spacing:0.01em">
@@ -311,24 +294,6 @@ export default function MapPanel({
         marker.addTo(map);
         warnLayers.current.push(marker);
 
-        // Obrys całego obszaru ostrzeżenia — convex hull centroidów
-        if (lats.length >= 3) {
-          const pts = lats.map((lat,i) => [lat, lons[i]]);
-          const hull = convexHull(pts);
-          if (hull.length >= 3) {
-            const outline = L.polygon(hull, {
-              color: LEVEL_BORDERS[w.level] || color,
-              fillColor: 'transparent',
-              fillOpacity: 0,
-              weight: 3,
-              dashArray: isDashed ? '8,5' : null,
-              opacity: 0.85,
-              smoothFactor: 1.5,
-            });
-            outline.addTo(map);
-            warnLayers.current.push(outline);
-          }
-        }
       });
 
     // Przywróć cyjan dla zaznaczonych powiatów edycji (priorytet nad kolorem ostrzeżenia)
@@ -382,7 +347,11 @@ export default function MapPanel({
       const color       = MA_LEVEL_COLORS[w.level] || '#facc15';
       const borderColor = MA_COUNTRY_BORDER[w.country] || '#64748b';
       const flag        = w.country_flag || '';
-      const tooltipBase = `${flag} <b>${w.country_name}</b><br/>${w.event || w.phenomenon}<br/>Stopień ${w.level}`;
+      const isPolitical = w.political_caution;
+      const cautionNote = isPolitical
+        ? `<br/><span style="font-size:9px;opacity:0.65;color:#9ca3af">⚠ ${w.source_note || 'Dane poza MeteoAlarm/EUMETNET'}</span>`
+        : '';
+      const tooltipBase = `${flag} <b>${w.country_name}</b><br/>${w.headline || w.event || w.phenomenon}<br/>Stopień ${w.level}${cautionNote}`;
 
       const allRings = [];   // wszystkie ringi tego ostrzeżenia (do centroidu labela)
 
@@ -424,12 +393,17 @@ export default function MapPanel({
         allRings.push(...ring);
 
       } else {
-        // Ostatni fallback: marker w centrum kraju
-        const CENTERS = { DE:[51.2,10.5], CZ:[49.8,15.5], SK:[48.7,19.7], LT:[55.9,23.9], BY:[53.7,28.0], UA:[49.0,32.0] };
+        // Ostatni fallback: marker w centrum kraju lub regionu
+        const CENTERS = {
+          DE:[51.2,10.5], CZ:[49.8,15.5], SK:[48.7,19.7], LT:[55.9,23.9],
+          BY:[53.7,28.0], UA:[49.0,32.0],
+          RU_KGD:[54.7,20.5],  // Kaliningrad
+        };
         const center = CENTERS[w.country];
         if (center) {
+          const markerColor = isPolitical ? '#9ca3af' : color;
           const icon = L.divIcon({
-            html: `<div style="background:${color};border:2px solid ${borderColor};border-radius:4px;padding:3px 7px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.4)">${flag} St.${w.level}</div>`,
+            html: `<div style="background:${markerColor};border:2px solid ${borderColor};border-radius:4px;padding:3px 7px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.4);opacity:${isPolitical?0.8:1}">${flag} St.${w.level}${isPolitical?' ⚠':''}</div>`,
             className: '', iconAnchor: [0, 0],
           });
           const mi = L.marker(center, { icon, interactive: true });
@@ -572,25 +546,41 @@ export default function MapPanel({
             display:'flex',gap:6,flexWrap:'wrap',maxWidth:200,
             boxShadow:'var(--shadow-card)',
           }}>
-            {['DE','CZ','SK','UA','LT','BY'].map(cc => {
-              const flags = {DE:'🇩🇪',CZ:'🇨🇿',SK:'🇸🇰',UA:'🇺🇦',LT:'🇱🇹',BY:'🇧🇾'};
+            {['DE','CZ','SK','UA','LT','RU_KGD','BY'].map(cc => {
+              const flags = {DE:'🇩🇪',CZ:'🇨🇿',SK:'🇸🇰',UA:'🇺🇦',LT:'🇱🇹',RU_KGD:'🇷🇺',BY:'🇧🇾'};
+              const caution = ['RU_KGD','BY'].includes(cc);  // dane spoza MeteoAlarm/EUMETNET
               const active = maCountries.includes(cc);
               return (
                 <button key={cc}
                   onClick={() => setMaCountries(prev => active ? prev.filter(c=>c!==cc) : [...prev,cc])}
+                  title={caution
+                    ? `${cc} — dane poglądowe spoza MeteoAlarm/EUMETNET. Traktuj z ostrożnością.`
+                    : cc}
                   style={{
                     padding:'2px 7px',borderRadius:4,fontSize:11,cursor:'pointer',
-                    border:'1px solid '+(active?MA_COUNTRY_BORDER[cc]||'var(--accent-blue)':'var(--border)'),
-                    background:active?`${MA_COUNTRY_BORDER[cc]}22`:'var(--bg-elevated)',
-                    color:active?'var(--text-primary)':'var(--text-muted)',
+                    border:`1px solid ${caution
+                      ? (active ? '#9ca3af' : 'var(--border)')
+                      : (active ? MA_COUNTRY_BORDER[cc]||'var(--accent-blue)' : 'var(--border)')}`,
+                    background: active
+                      ? (caution ? 'rgba(156,163,175,0.15)' : `${MA_COUNTRY_BORDER[cc]}22`)
+                      : 'var(--bg-elevated)',
+                    color: active ? 'var(--text-primary)' : 'var(--text-muted)',
+                    opacity: caution ? 0.85 : 1,
                   }}>
-                  {flags[cc]} {cc}
+                  {flags[cc]} {cc === 'RU_KGD' ? 'RU-KGD' : cc}
+                  {caution && <span style={{marginLeft:3,fontSize:8,opacity:0.7}}>⚠</span>}
                 </button>
               );
             })}
             <div style={{width:'100%',fontSize:9,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>
               {maWarnings.length} ostrzeżeń · cache 10min
             </div>
+            {maCountries.some(c => ['RU_KGD','BY'].includes(c)) && (
+              <div style={{width:'100%',fontSize:9,color:'var(--text-muted)',
+                padding:'3px 0',borderTop:'1px solid var(--border)',lineHeight:1.4}}>
+                ⚠ RU/BY — dane poglądowe, poza MeteoAlarm/EUMETNET
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
 import json, uuid, os, zipfile, io
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 
 from app.models.schemas import (
     WarningCreate, WarningDB, LevelCheckRequest,
@@ -58,10 +58,56 @@ def load_warnings():
     if os.path.exists(STORAGE_FILE):
         try:
             with open(STORAGE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+            return _migrate_to_v2_1(data)
         except Exception:
             pass
     return {}
+
+def _migrate_to_v2_1(db: dict) -> dict:
+    """
+    Migracja v2.0 → v2.1 — dodaje pola drzewa wersji.
+    Stare rekordy bez warning_group_id dostają je na podstawie references_id chain.
+    """
+    if not db:
+        return db
+    # Pierwsza pętla: każdy rekord który nie ma group_id — znajdź root przez references_id
+    for wid, w in db.items():
+        if "warning_group_id" in w:
+            continue
+        # Znajdź root chain
+        root = w
+        seen = {wid}
+        while root.get("references_id") and root["references_id"] in db:
+            ref_id = root["references_id"]
+            if ref_id in seen:
+                break  # cycle protection
+            seen.add(ref_id)
+            root = db[ref_id]
+        w["warning_group_id"] = root["id"]
+        w["parent_id"] = w.get("references_id")
+    # Druga pętla: oblicz version (głębokość w drzewie) i is_active_leaf
+    for wid, w in db.items():
+        if "version" not in w:
+            v = 1
+            cur = w
+            while cur.get("parent_id") and cur["parent_id"] in db:
+                cur = db[cur["parent_id"]]
+                v += 1
+                if v > 100:
+                    break
+            w["version"] = v
+        if "is_active_leaf" not in w:
+            # Aktywny liść = nie zastąpione i nie anulowane
+            is_superseded = bool(w.get("is_updated") or w.get("superseded_by"))
+            is_cancelled  = bool(w.get("is_cancelled") or w.get("msg_type") == "Cancel")
+            w["is_active_leaf"] = not (is_superseded or is_cancelled)
+        if "operation_hint" not in w:
+            mt = w.get("msg_type", "Alert")
+            if mt == "Alert":     w["operation_hint"] = "create"
+            elif mt == "Cancel":  w["operation_hint"] = "full_cancel"
+            else:                 w["operation_hint"] = "amend"
+    return db
 
 def save_warnings():
     os.makedirs("/data", exist_ok=True)
@@ -150,19 +196,47 @@ def create_warning(warning: WarningCreate):
     w["level"]      = level
     w["created_at"] = datetime.utcnow().isoformat()
 
-    # Jeśli to Update — oznacz poprzednie jako zaktualizowane
-    if w.get("msg_type") == "Update" and w.get("references_id"):
-        ref = WARNINGS_DB.get(w["references_id"])
+    # === Pola drzewa wersji (v2.1) ===
+    parent_id = w.get("references_id")
+    if parent_id and parent_id in WARNINGS_DB:
+        # To jest Update lub kontynuacja w drzewie
+        parent = WARNINGS_DB[parent_id]
+        w["warning_group_id"] = parent.get("warning_group_id", parent_id)
+        w["parent_id"]        = parent_id
+        w["version"]          = parent.get("version", 1) + 1
+    else:
+        # Nowe ostrzeżenie — root drzewa
+        w["warning_group_id"] = wid
+        w["parent_id"]        = None
+        w["version"]          = 1
+
+    # operation_hint — domyślnie z msg_type, można nadpisać explicite z requesta
+    if "operation_hint" not in w or not w.get("operation_hint"):
+        mt = w.get("msg_type", "Alert")
+        if mt == "Alert":     w["operation_hint"] = "create"
+        elif mt == "Cancel":  w["operation_hint"] = "full_cancel"
+        else:                 w["operation_hint"] = "amend"
+
+    # is_active_leaf — domyślnie True dla nowych Alert/Update; Cancel staje się liściem cancelled
+    is_cancelled = w.get("msg_type") == "Cancel"
+    w["is_active_leaf"] = not is_cancelled
+
+    # Jeśli to Update — oznacz poprzednie jako zaktualizowane (NIE jest już aktywnym liściem)
+    if w.get("msg_type") == "Update" and parent_id:
+        ref = WARNINGS_DB.get(parent_id)
         if ref:
-            ref["is_updated"] = True
-            ref["updated_by"] = wid
+            ref["is_updated"]    = True
+            ref["updated_by"]    = wid
+            ref["superseded_by"] = wid
+            ref["is_active_leaf"] = False
 
     # Jeśli to Cancel — oznacz oryginalne jako anulowane
-    if w.get("msg_type") == "Cancel" and w.get("references_id"):
-        ref = WARNINGS_DB.get(w["references_id"])
+    if w.get("msg_type") == "Cancel" and parent_id:
+        ref = WARNINGS_DB.get(parent_id)
         if ref:
-            ref["is_cancelled"] = True
-            ref["cancelled_by"] = wid
+            ref["is_cancelled"]   = True
+            ref["cancelled_by"]   = wid
+            ref["is_active_leaf"] = False
 
     w["status"] = _compute_status(w)
     try:
@@ -254,10 +328,12 @@ def get_default_texts(
     params: str = Query(default="{}")
 ):
     """
-    Zwraca domyślne teksty dla danego zjawiska i stopnia.
-    - description: opis meteorologiczny z warning_texts.py (z podstawionymi parametrami)
-    - impacts:     spodziewane skutki z phenomenon_config.py (lista punktów)
-    - instruction: zalecenia z phenomenon_config.py (lista punktów)
+    Zwraca domyślne teksty dla danego zjawiska i stopnia w obu językach (PL + EN).
+    - description_pl/en: opis meteorologiczny z warning_texts.py
+    - impacts_pl/en:     spodziewane skutki (PL z phenomenon_config, EN z warning_texts)
+    - instruction_pl/en: zalecenia (PL z phenomenon_config, EN z warning_texts)
+
+    Wstecz-kompatybilność: zwraca też description, impacts, instruction (wskazują na PL).
     """
     import json
     from app.data.warning_texts import WARNING_CONFIG
@@ -271,33 +347,45 @@ def get_default_texts(
     if not level_cfg:
         raise HTTPException(404, f"Brak konfiguracji stopnia {level} dla '{phenomenon}'")
 
-    # Opis meteorologiczny — podstaw parametry z suwaka
     try:
         params_dict = json.loads(params)
     except Exception:
         params_dict = {}
-    description = _fmt_params(level_cfg.get("description_pl", ""), params_dict)
 
-    # Skutki — z phenomenon_config (lepsze, punktowane)
-    impacts_list = PHENOMENON_IMPACTS.get(phenomenon, {}).get(level, [])
-    if impacts_list:
-        impacts = "\n".join(f"• {i}" for i in impacts_list)
-    else:
-        impacts = level_cfg.get("impacts_pl", "")
+    # Description
+    description_pl = _fmt_params(level_cfg.get("description_pl", ""), params_dict)
+    description_en = _fmt_params(level_cfg.get("description_en", ""), params_dict)
 
-    # Zalecenia — z phenomenon_config (lepsze, punktowane)
-    instructions_list = PHENOMENON_INSTRUCTIONS.get(phenomenon, {}).get(level, [])
-    if instructions_list:
-        instruction = "\n".join(f"• {i}" for i in instructions_list)
+    # Impacts: PL z phenomenon_config (lista punktów), EN z warning_texts (tekst)
+    impacts_list_pl = PHENOMENON_IMPACTS.get(phenomenon, {}).get(level, [])
+    if impacts_list_pl:
+        impacts_pl = "\n".join(f"• {i}" for i in impacts_list_pl)
     else:
-        instruction = level_cfg.get("instruction_pl", "")
+        impacts_pl = level_cfg.get("impacts_pl", "")
+    impacts_en = level_cfg.get("impacts_en", "")
+
+    # Instructions: PL z phenomenon_config, EN z warning_texts
+    instructions_list_pl = PHENOMENON_INSTRUCTIONS.get(phenomenon, {}).get(level, [])
+    if instructions_list_pl:
+        instruction_pl = "\n".join(f"• {i}" for i in instructions_list_pl)
+    else:
+        instruction_pl = level_cfg.get("instruction_pl", "")
+    instruction_en = level_cfg.get("instruction_en", "")
 
     return {
-        "phenomenon":  phenomenon,
-        "level":       level,
-        "description": description,
-        "impacts":     impacts,
-        "instruction": instruction,
+        "phenomenon":     phenomenon,
+        "level":          level,
+        # Wstecz-kompatybilność (= PL)
+        "description":    description_pl,
+        "impacts":        impacts_pl,
+        "instruction":    instruction_pl,
+        # Wersje językowe
+        "description_pl": description_pl,
+        "description_en": description_en,
+        "impacts_pl":     impacts_pl,
+        "impacts_en":     impacts_en,
+        "instruction_pl": instruction_pl,
+        "instruction_en": instruction_en,
     }
 
 @app.get("/api/warnings/{warning_id}")
@@ -310,22 +398,566 @@ def get_warning(warning_id: str):
 
 
 @app.post("/api/warnings/{warning_id}/cancel")
-def cancel_warning(warning_id: str):
-    """Anuluj ostrzeżenie — tworzy nowy CAP z msgType=Cancel."""
+def cancel_warning(warning_id: str, body: Optional[dict] = None):
+    """
+    Anuluj ostrzeżenie (full cancel).
+    Oznacza oryginał jako cancelled, generuje CAP Cancel XML i dystrybuuje.
+    NIE tworzy nowego rekordu w bazie — oryginał trafia do archiwum jako 'Anulowane'.
+
+    Opcjonalne body: { "reason_code": "ended|not_occurred|downgrade|custom", "reason_text": "..." }
+    """
     w = WARNINGS_DB.get(warning_id)
     if not w:
         raise HTTPException(404, "Warning not found")
-    cancel_data = WarningCreate(
-        phenomenon=w["phenomenon"],
-        params=w.get("params", {}),
-        counties=w.get("counties", []),
-        polygon=w.get("polygon"),
-        onset=w["onset"],
-        expires=w["expires"],
-        msg_type="Cancel",
-        references_id=warning_id,
+    if w.get("is_cancelled") or w.get("msg_type") == "Cancel":
+        raise HTTPException(409, "Ostrzeżenie jest już anulowane")
+
+    # Powód anulowania
+    body = body or {}
+    reason_code = body.get("reason_code", "ended")
+    reason_text = body.get("reason_text") or {
+        "ended":         "Zjawisko ustąpiło.",
+        "not_occurred":  "Zjawisko nie wystąpiło.",
+        "downgrade":     "Zagrożenie zmalało poniżej poziomu ostrzeżenia.",
+    }.get(reason_code, "Ostrzeżenie odwołane.")
+
+    # Oznacz oryginał jako anulowany
+    w["is_cancelled"]   = True
+    w["cancelled_at"]   = datetime.utcnow().isoformat()
+    w["cancel_reason"]  = reason_text
+    w["status"]         = "cancelled"
+    w["is_active_leaf"] = False
+
+    # Generuj CAP Cancel XML do dystrybucji (nie zapisujemy jako osobny rekord)
+    cancel_w = {**w, "msg_type": "Cancel", "references_id": warning_id, "description": reason_text}
+    try:
+        cancel_xml = generate_cap_xml(cancel_w)
+        w["cancel_xml"] = cancel_xml  # zachowaj XML Cancel w oryginale dla pobrania
+        # Dystrybuuj CAP Cancel
+        _ph    = w.get("phenomenon", "ostrzezenie")
+        _lvl   = w.get("level", 1)
+        _ts    = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        _fname = f"IMGW_{_ph}_st{_lvl}_{_ts}_CANCEL.xml"
+        dispatch_webhooks_async(cancel_xml, warning_id, warning_level=_lvl)
+        dispatch_all_async(cancel_xml, _fname, cancel_w)
+    except Exception:
+        pass
+
+    save_warnings()
+    return w
+
+
+@app.get("/api/warnings/{warning_id}/group")
+def get_warning_group(warning_id: str):
+    """Zwraca wszystkie wersje tej samej grupy (drzewa) ostrzeżenia, posortowane chronologicznie."""
+    w = WARNINGS_DB.get(warning_id)
+    if not w:
+        raise HTTPException(404, "Warning not found")
+    group_id = w.get("warning_group_id") or w["id"]
+    versions = [v for v in WARNINGS_DB.values() if v.get("warning_group_id") == group_id]
+    versions.sort(key=lambda x: (x.get("version", 1), x.get("created_at", "")))
+    return {"group_id": group_id, "versions": versions}
+
+
+@app.get("/api/warnings/{warning_id}/chain-zip")
+def get_warning_chain_zip(warning_id: str):
+    """
+    Pobierz pełen łańcuch CAP XML wszystkich wersji grupy jako ZIP.
+    Każdy plik nazwany v{N}_{operation}_{id}.xml + dodatkowo manifest.txt z chronologią.
+    Użyteczne dla audytu, prokuratury, weryfikacji sprawdzalności.
+    """
+    import io, zipfile
+    from fastapi.responses import StreamingResponse
+
+    w = WARNINGS_DB.get(warning_id)
+    if not w:
+        raise HTTPException(404, "Warning not found")
+    group_id = w.get("warning_group_id") or w["id"]
+    versions = [v for v in WARNINGS_DB.values() if v.get("warning_group_id") == group_id]
+    versions.sort(key=lambda x: (x.get("version", 1), x.get("created_at", "")))
+
+    buf = io.BytesIO()
+    manifest_lines = [
+        f"MeteoCAP — łańcuch CAP dla grupy ostrzeżenia",
+        f"Group ID: {group_id}",
+        f"Liczba wersji: {len(versions)}",
+        f"Wygenerowano: {datetime.utcnow().isoformat()}Z",
+        "",
+        "=" * 70,
+        "CHRONOLOGIA WERSJI",
+        "=" * 70,
+        "",
+    ]
+
+    OP_LABELS = {
+        "create": "Wydanie", "amend": "Korekta", "escalate": "Eskalacja",
+        "deescalate": "Deeskalacja", "extend": "Przedłużenie", "shorten": "Skrócenie",
+        "expand_area": "Powiększenie obszaru", "cut_area": "Wycięcie obszaru",
+        "partial_cancel": "Cancel (część obszaru)", "full_cancel": "Cancel",
+    }
+
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for v in versions:
+            ver = v.get("version", 1)
+            op = v.get("operation_hint", v.get("msg_type", "unknown"))
+            mt = v.get("msg_type", "Alert")
+            vid = v["id"][:8]
+            xml = v.get("cap_xml") or v.get("cancel_xml") or ""
+            if not xml:
+                continue
+            fname = f"v{ver:02d}_{op}_{vid}.xml"
+            zf.writestr(fname, xml)
+
+            # Wpis w manifeście
+            ts = v.get("created_at", "")
+            counties = v.get("counties", [])
+            level = v.get("level", "?")
+            status = "ANULOWANE" if v.get("is_cancelled") else (
+                "AKTYWNE" if v.get("is_active_leaf") else "ZASTĄPIONE"
+            )
+            manifest_lines.extend([
+                f"v{ver}  [{ts}]  {OP_LABELS.get(op, op)}",
+                f"      msgType: {mt}  |  Stopień: {level}  |  Status: {status}",
+                f"      Powiaty: {len(counties)}  |  Plik: {fname}",
+                f"      ID: {v['id']}",
+            ])
+            if v.get("references_id"):
+                manifest_lines.append(f"      References: {v['references_id']}")
+            if v.get("cancel_reason"):
+                manifest_lines.append(f"      Powód anulowania: {v['cancel_reason']}")
+            manifest_lines.append("")
+
+        # Manifest
+        zf.writestr("MANIFEST.txt", "\n".join(manifest_lines))
+
+    buf.seek(0)
+    fname = f"meteocap_chain_{group_id[:8]}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.zip"
+    return StreamingResponse(
+        iter([buf.read()]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'}
     )
-    return create_warning(cancel_data)
+
+
+@app.get("/api/warnings/{warning_id}/tree")
+def get_warning_tree(warning_id: str):
+    """
+    Zwraca strukturę drzewa wersji jako węzły + krawędzie.
+    Dla wizualizacji SVG.
+    """
+    w = WARNINGS_DB.get(warning_id)
+    if not w:
+        raise HTTPException(404, "Warning not found")
+    group_id = w.get("warning_group_id") or w["id"]
+    versions = [v for v in WARNINGS_DB.values() if v.get("warning_group_id") == group_id]
+    nodes = []
+    edges = []
+    for v in versions:
+        # Status node
+        if v.get("is_cancelled"):       node_status = "cancelled"
+        elif v.get("is_active_leaf"):   node_status = "active"
+        else:                            node_status = "superseded"
+        nodes.append({
+            "id":          v["id"],
+            "version":     v.get("version", 1),
+            "level":       v.get("level"),
+            "operation":   v.get("operation_hint", "unknown"),
+            "msg_type":    v.get("msg_type"),
+            "created_at":  v.get("created_at"),
+            "status":      node_status,
+            "counties_count": len(v.get("counties", [])),
+            "headline":    v.get("headline", ""),
+            "is_active_leaf": bool(v.get("is_active_leaf")),
+        })
+        if v.get("parent_id"):
+            edges.append({"from": v["parent_id"], "to": v["id"]})
+    return {"group_id": group_id, "nodes": nodes, "edges": edges}
+
+
+@app.post("/api/warnings/{warning_id}/partial-cancel")
+def partial_cancel_warning(warning_id: str, body: dict):
+    """
+    Wytnij część obszaru z ostrzeżenia.
+    Tworzy DWA dzieci tej samej wersji:
+    - B: Update z pozostałymi powiatami (kontynuacja, is_active_leaf=True)
+    - C: Cancel z wyciętymi powiatami (cancelled, is_active_leaf=False, NIE tworzymy nowego rekordu — tylko CAP XML)
+
+    Body: {
+      "counties_to_cancel": ["county_id_1", ...],
+      "description_continuation": "...",  // opis dla B (opcjonalny — wczyta szablon cut_area)
+      "reason_code": "ended|not_occurred|downgrade|custom",
+      "reason_text": "..."  // opcjonalny tekst własny dla cancel
+    }
+    """
+    orig = WARNINGS_DB.get(warning_id)
+    if not orig:
+        raise HTTPException(404, "Warning not found")
+    if not orig.get("is_active_leaf"):
+        raise HTTPException(409, "Można wycinać obszar tylko z aktywnego liścia drzewa")
+
+    counties_to_cancel = set(body.get("counties_to_cancel", []))
+    if not counties_to_cancel:
+        raise HTTPException(400, "Lista counties_to_cancel jest pusta")
+
+    orig_counties = orig.get("counties", [])
+    counties_remain    = [c for c in orig_counties if str(c.get("id")) not in {str(x) for x in counties_to_cancel}]
+    counties_cancelled = [c for c in orig_counties if str(c.get("id"))     in {str(x) for x in counties_to_cancel}]
+
+    if not counties_remain:
+        raise HTTPException(400, "Wycięto wszystkie powiaty — użyj zwykłego anulowania zamiast partial-cancel")
+    if not counties_cancelled:
+        raise HTTPException(400, "Żaden z wskazanych powiatów nie należy do tego ostrzeżenia")
+
+    # Powód anulowania
+    reason_code = body.get("reason_code", "ended")
+    reason_text = body.get("reason_text") or {
+        "ended":         "Zjawisko ustąpiło dla wskazanego obszaru.",
+        "not_occurred":  "Zjawisko nie wystąpiło dla wskazanego obszaru.",
+        "downgrade":     "Zagrożenie zmalało poniżej poziomu ostrzeżenia dla wskazanego obszaru.",
+    }.get(reason_code, "Ostrzeżenie odwołane dla wskazanego obszaru.")
+
+    # === B: Update z pozostałymi powiatami (kontynuacja) ===
+    new_b_id = str(uuid.uuid4())
+    b = {**orig}
+    b["id"]              = new_b_id
+    b["counties"]        = counties_remain
+    b["created_at"]      = datetime.utcnow().isoformat()
+    b["msg_type"]        = "Update"
+    b["operation_hint"]  = "cut_area"
+    b["references_id"]   = warning_id
+    b["parent_id"]       = warning_id
+    b["warning_group_id"] = orig.get("warning_group_id", warning_id)
+    b["version"]         = orig.get("version", 1) + 1
+    b["is_active_leaf"]  = True
+    b["is_cancelled"]    = False
+    b["is_updated"]      = False
+    b["superseded_by"]   = None
+    b["cancel_xml"]      = None
+
+    # Opis B — z body lub szablon cut_area
+    if body.get("description_continuation"):
+        b["description"] = body["description_continuation"]
+    else:
+        from app.data.update_templates import get_template, render_template
+        ctx = {**(orig.get("params") or {}), "expires": orig.get("expires", "")}
+        b["description"] = render_template(get_template(orig["phenomenon"], "cut_area"), ctx)
+
+    b["status"] = _compute_status(b)
+    try:
+        b["cap_xml"] = generate_cap_xml(b)
+    except Exception:
+        b["cap_xml"] = None
+
+    # === C: CAP Cancel dla wyciętych powiatów (NIE zapisujemy jako rekord) ===
+    new_c_id = str(uuid.uuid4())
+    c = {**orig}
+    c["id"]              = new_c_id
+    c["counties"]        = counties_cancelled
+    c["created_at"]      = b["created_at"]
+    c["msg_type"]        = "Cancel"
+    c["operation_hint"]  = "partial_cancel"
+    c["references_id"]   = warning_id
+    c["parent_id"]       = warning_id
+    c["warning_group_id"] = orig.get("warning_group_id", warning_id)
+    c["version"]         = orig.get("version", 1) + 1
+    c["is_active_leaf"]  = False
+    c["is_cancelled"]    = True
+    c["cancel_reason"]   = reason_text
+    c["description"]     = reason_text
+    c["cancelled_at"]    = b["created_at"]
+
+    try:
+        c["cap_xml"] = generate_cap_xml(c)
+    except Exception:
+        c["cap_xml"] = None
+
+    # === Oznacz oryginał jako zastąpiony ===
+    orig["is_updated"]      = True
+    orig["is_active_leaf"]  = False
+    orig["superseded_by"]   = new_b_id
+    orig["status"]          = "updated"
+
+    # === Zapisz ===
+    WARNINGS_DB[new_b_id] = b
+    WARNINGS_DB[new_c_id] = c
+    save_warnings()
+
+    # === Dystrybucja: oba CAP-y ===
+    try:
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        ph = orig.get("phenomenon", "ostrzezenie")
+        lvl = orig.get("level", 1)
+        if b.get("cap_xml"):
+            dispatch_webhooks_async(b["cap_xml"], new_b_id, warning_level=lvl)
+            dispatch_all_async(b["cap_xml"], f"IMGW_{ph}_st{lvl}_{ts}_UPD_CUT.xml", b)
+        if c.get("cap_xml"):
+            dispatch_webhooks_async(c["cap_xml"], new_c_id, warning_level=lvl)
+            dispatch_all_async(c["cap_xml"], f"IMGW_{ph}_st{lvl}_{ts}_CANCEL_PART.xml", c)
+    except Exception:
+        pass
+
+    return {
+        "continuation": b,    # nowy aktywny liść z mniejszym obszarem
+        "cancellation": c,    # rekord cancel dla wyciętych powiatów
+        "original_id":  warning_id,
+    }
+
+
+@app.post("/api/warnings/{warning_id}/expand-area")
+def expand_area_warning(warning_id: str, body: dict):
+    """
+    Rozszerzenie obszaru ostrzeżenia gdy synoptyk dodaje powiaty NIGDY nie obecne w grupie.
+
+    Body:
+    - all_counties:    pełna lista powiatów po rozszerzeniu (stare + nowe)
+    - params:          aktualne parametry
+    - description, impacts, instruction, headline: treści (opcjonalne)
+    - mode:            "split" (zalecane) | "replace"
+        split   = Aktualizacja drzewa A z istniejącymi powiatami + nowe Ostrzeżenie (drzewo B) dla nowych
+        replace = Odwołanie drzewa A z przyczyną "kontynuacja w nowym ostrzeżeniu" + nowe Ostrzeżenie z całością
+
+    W trybie split tworzymy 2 nowe rekordy w bazie (Update w A + Alert w B), oba z `related_group_ids`.
+    """
+    orig = WARNINGS_DB.get(warning_id)
+    if not orig:
+        raise HTTPException(404, "Warning not found")
+    if not orig.get("is_active_leaf"):
+        raise HTTPException(409, "Można rozszerzać obszar tylko aktywnego liścia")
+
+    all_counties = body.get("all_counties", [])
+    if not all_counties:
+        raise HTTPException(400, "Lista powiatów jest pusta")
+    mode = body.get("mode", "split")
+    if mode not in ("split", "replace"):
+        raise HTTPException(400, "mode musi być 'split' lub 'replace'")
+
+    # Zbierz wszystkie powiaty kiedykolwiek obecne w grupie A (nawet wycięte/anulowane)
+    group_id = orig.get("warning_group_id") or orig["id"]
+    all_in_group_ever = set()
+    for v in WARNINGS_DB.values():
+        if v.get("warning_group_id") == group_id:
+            for c in (v.get("counties") or []):
+                all_in_group_ever.add(str(c.get("id")))
+
+    # Podział na "były w drzewie" i "nigdy nie było"
+    new_counties_in_a = []   # te które były w grupie A
+    new_counties_in_b = []   # nigdy nie były w grupie A → idą do drzewa B
+    for c in all_counties:
+        cid = str(c.get("id"))
+        if cid in all_in_group_ever:
+            new_counties_in_a.append(c)
+        else:
+            new_counties_in_b.append(c)
+
+    if not new_counties_in_b:
+        raise HTTPException(400, "Brak powiatów które byłyby poza pierwotnym obszarem grupy. Użyj zwykłej aktualizacji.")
+
+    params      = body.get("params", orig.get("params", {}))
+    onset       = body.get("onset", orig.get("onset"))
+    expires     = body.get("expires", orig.get("expires"))
+    headline    = body.get("headline", orig.get("headline"))
+    description = body.get("description", orig.get("description"))
+    impacts     = body.get("impacts", orig.get("impacts"))
+    instruction = body.get("instruction", orig.get("instruction"))
+
+    new_a_id = str(uuid.uuid4())
+    new_b_id = str(uuid.uuid4())
+    now_iso  = datetime.utcnow().isoformat()
+
+    if mode == "split":
+        # === A: Aktualizacja drzewa A z istniejącymi powiatami ===
+        a = {**orig}
+        a["id"]                = new_a_id
+        a["counties"]          = new_counties_in_a
+        a["params"]            = params
+        a["onset"]             = onset
+        a["expires"]           = expires
+        a["headline"]          = headline
+        a["description"]       = description
+        a["impacts"]           = impacts
+        a["instruction"]       = instruction
+        a["created_at"]        = now_iso
+        a["msg_type"]          = "Update"
+        a["operation_hint"]    = "amend"
+        a["references_id"]     = warning_id
+        a["parent_id"]         = warning_id
+        a["warning_group_id"]  = group_id
+        a["version"]           = orig.get("version", 1) + 1
+        a["is_active_leaf"]    = True
+        a["is_cancelled"]      = False
+        a["is_updated"]        = False
+        a["superseded_by"]     = None
+        a["cancel_xml"]        = None
+        a["related_group_ids"] = [new_b_id]   # wskazuje na korzeń drzewa B
+        a["level"]             = determine_warning_level(orig["phenomenon"], params)
+        a["status"]            = _compute_status(a)
+        try:    a["cap_xml"] = generate_cap_xml(a)
+        except: a["cap_xml"] = None
+
+        # === B: Nowe Ostrzeżenie (Alert) — osobne drzewo ===
+        b = {**orig}
+        b["id"]                = new_b_id
+        b["counties"]          = new_counties_in_b
+        b["params"]            = params
+        b["onset"]             = onset
+        b["expires"]           = expires
+        b["headline"]          = headline
+        b["description"]       = description
+        b["impacts"]           = impacts
+        b["instruction"]       = instruction
+        b["created_at"]        = now_iso
+        b["msg_type"]          = "Alert"
+        b["operation_hint"]    = "create"
+        b["references_id"]     = None
+        b["parent_id"]         = None
+        b["warning_group_id"]  = new_b_id    # nowy korzeń
+        b["version"]           = 1
+        b["is_active_leaf"]    = True
+        b["is_cancelled"]      = False
+        b["is_updated"]        = False
+        b["superseded_by"]     = None
+        b["cancel_xml"]        = None
+        b["related_group_ids"] = [group_id]  # wskazuje na drzewo A
+        b["level"]             = determine_warning_level(orig["phenomenon"], params)
+        b["status"]            = _compute_status(b)
+        try:    b["cap_xml"] = generate_cap_xml(b)
+        except: b["cap_xml"] = None
+
+        # Oryginał zastąpiony
+        orig["is_updated"]      = True
+        orig["is_active_leaf"]  = False
+        orig["superseded_by"]   = new_a_id
+        orig["status"]          = "updated"
+
+        WARNINGS_DB[new_a_id] = a
+        WARNINGS_DB[new_b_id] = b
+        save_warnings()
+
+        # Dystrybucja obu CAP-ów
+        try:
+            ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            ph = orig.get("phenomenon", "ostrzezenie")
+            lvl = a.get("level", 1)
+            if a.get("cap_xml"):
+                dispatch_webhooks_async(a["cap_xml"], new_a_id, warning_level=lvl)
+                dispatch_all_async(a["cap_xml"], f"IMGW_{ph}_st{lvl}_{ts}_UPD.xml", a)
+            if b.get("cap_xml"):
+                dispatch_webhooks_async(b["cap_xml"], new_b_id, warning_level=b.get("level", 1))
+                dispatch_all_async(b["cap_xml"], f"IMGW_{ph}_st{b.get('level',1)}_{ts}_NEW.xml", b)
+        except Exception:
+            pass
+
+        return {
+            "mode": "split",
+            "updated_in_group_a": a,
+            "new_alert_group_b": b,
+            "original_id": warning_id,
+        }
+
+    else:  # mode == "replace"
+        # Odwołanie drzewa A + nowe pełne Ostrzeżenie B
+        cancel_reason = "Kontynuacja w nowym ostrzeżeniu po rozszerzeniu obszaru."
+        orig["is_cancelled"]   = True
+        orig["cancelled_at"]   = now_iso
+        orig["cancel_reason"]  = cancel_reason
+        orig["status"]         = "cancelled"
+        orig["is_active_leaf"] = False
+
+        # Generuj CAP Cancel dla A
+        cancel_w = {**orig, "msg_type": "Cancel", "references_id": warning_id, "description": cancel_reason}
+        try:
+            cancel_xml = generate_cap_xml(cancel_w)
+            orig["cancel_xml"] = cancel_xml
+        except Exception:
+            cancel_xml = None
+
+        # Nowe drzewo B z pełnymi powiatami
+        b = {**orig}
+        b["id"]                = new_b_id
+        b["counties"]          = all_counties
+        b["params"]            = params
+        b["onset"]             = onset
+        b["expires"]           = expires
+        b["headline"]          = headline
+        b["description"]       = description
+        b["impacts"]           = impacts
+        b["instruction"]       = instruction
+        b["created_at"]        = now_iso
+        b["msg_type"]          = "Alert"
+        b["operation_hint"]    = "create"
+        b["references_id"]     = None
+        b["parent_id"]         = None
+        b["warning_group_id"]  = new_b_id
+        b["version"]           = 1
+        b["is_active_leaf"]    = True
+        b["is_cancelled"]      = False
+        b["is_updated"]        = False
+        b["superseded_by"]     = None
+        b["cancel_xml"]        = None
+        b["cancelled_at"]      = None
+        b["cancel_reason"]     = None
+        b["related_group_ids"] = [group_id]
+        b["level"]             = determine_warning_level(orig["phenomenon"], params)
+        b["status"]            = _compute_status(b)
+        try:    b["cap_xml"] = generate_cap_xml(b)
+        except: b["cap_xml"] = None
+
+        # Dodaj related do oryginału (wstecz)
+        orig.setdefault("related_group_ids", []).append(new_b_id)
+
+        WARNINGS_DB[new_b_id] = b
+        save_warnings()
+
+        # Dystrybucja: cancel A + alert B
+        try:
+            ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            ph = orig.get("phenomenon", "ostrzezenie")
+            if cancel_xml:
+                dispatch_webhooks_async(cancel_xml, warning_id, warning_level=orig.get("level", 1))
+                dispatch_all_async(cancel_xml, f"IMGW_{ph}_st{orig.get('level',1)}_{ts}_CANCEL.xml", cancel_w)
+            if b.get("cap_xml"):
+                dispatch_webhooks_async(b["cap_xml"], new_b_id, warning_level=b.get("level", 1))
+                dispatch_all_async(b["cap_xml"], f"IMGW_{ph}_st{b.get('level',1)}_{ts}_NEW.xml", b)
+        except Exception:
+            pass
+
+        return {
+            "mode": "replace",
+            "cancelled_group_a": orig,
+            "new_alert_group_b": b,
+            "original_id": warning_id,
+        }
+
+
+@app.get("/api/warnings/update-template")
+def get_update_template(phenomenon: str, operation: str, params: str = "{}", context: str = "{}"):
+    """
+    Zwraca podpowiedź szablonu opisu dla operacji Update.
+
+    Query:
+    - phenomenon: nazwa zjawiska
+    - operation: create | amend | escalate | deescalate | extend | shorten | expand_area | cut_area
+    - params: JSON-string z aktualnymi parametrami ostrzeżenia
+    - context: JSON-string z dodatkowym kontekstem (observed_value, forecast_value, total_value, old_level, new_level, old_param_value, expires)
+    """
+    from app.data.update_templates import get_template, render_template
+    try:
+        params_dict = json.loads(params) if isinstance(params, str) else (params or {})
+    except Exception:
+        params_dict = {}
+    try:
+        context_dict = json.loads(context) if isinstance(context, str) else (context or {})
+    except Exception:
+        context_dict = {}
+
+    ctx = {**params_dict, **context_dict}
+    template = get_template(phenomenon, operation)
+    rendered = render_template(template, ctx)
+    return {
+        "template":  template,
+        "rendered":  rendered,
+        "operation": operation,
+    }
 
 
 @app.put("/api/warnings/{warning_id}")
@@ -677,11 +1309,17 @@ def export_svg(
 def export_pdf(
     status_filter: str = Query("active,pending"),
     voivodeship: str = Query(None, description="Filtr województwa (opcjonalny)"),
-    title: str = Query("Raport ostrzeżeń meteorologicznych — IMGW-PIB"),
+    title: str = Query(None),
+    lang: str = Query("pl", description="Język raportu: pl | en"),
 ):
-    """Eksport raportu ostrzeżeń jako PDF."""
+    """
+    Eksport raportu ostrzeżeń jako PDF w wybranym języku (pl|en).
+    Domyślny tytuł zostanie ustawiony w pdf_generator zależnie od języka.
+    """
     if not REPORTLAB_AVAILABLE:
         raise HTTPException(503, "ReportLab nie jest zainstalowany — PDF niedostępny")
+    if lang not in ("pl", "en"):
+        raise HTTPException(400, "lang musi być 'pl' lub 'en'")
     allowed = set(status_filter.split(","))
     warnings = list(WARNINGS_DB.values())
     for w in warnings:
@@ -692,15 +1330,17 @@ def export_pdf(
         warnings,
         title=title,
         voivodeship_filter=voivodeship,
+        lang=lang,
     )
     if not pdf_bytes:
         raise HTTPException(500, "Błąd generowania PDF")
 
     now = datetime.utcnow().strftime("%Y%m%d_%H%M")
+    suffix = "_en" if lang == "en" else ""
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="meteocap_raport_{now}.pdf"'}
+        headers={"Content-Disposition": f'attachment; filename="meteocap_raport{suffix}_{now}.pdf"'}
     )
 
 

@@ -137,14 +137,26 @@ export default function App() {
               warnings={warnings}
               onDelete={handleWarningDeleted}
               onStatusChange={setStatus}
-              onHighlight={handleHighlightWarning}
-              highlightedId={highlightedWarning}
+              onEdit={(warningId) => {
+                setView('editor');
+                setTimeout(() => {
+                  window.dispatchEvent(new CustomEvent('meteocap:loadForUpdate', { detail: { warningId } }));
+                }, 100);
+              }}
             />
           )}
           {view === 'status' && (
             <StatusView
               warnings={warnings}
               onRefresh={loadWarnings}
+              onEdit={(warningId) => {
+                // Przejdź do edytora w trybie Update z wybranym ostrzeżeniem
+                setView('editor');
+                // Posyłamy do EditorPanel przez window event (najprostsze rozwiązanie bez nowego state)
+                setTimeout(() => {
+                  window.dispatchEvent(new CustomEvent('meteocap:loadForUpdate', { detail: { warningId } }));
+                }, 100);
+              }}
             />
           )}
           {view === 'settings' && (

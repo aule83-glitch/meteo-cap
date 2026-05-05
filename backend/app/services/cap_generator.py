@@ -30,7 +30,9 @@ def _fmt_params(template: str, params: dict) -> str:
     try:
         return template.format(**safe)
     except (KeyError, ValueError):
-        return template
+        # Podstaw brakujące zmienne na myślnik zamiast zostawiać klamry
+        import re
+        return re.sub(r'\{(\w+)\}', lambda m: safe.get(m.group(1), '—'), template)
 
 
 def generate_cap_xml(warning: dict) -> str:
@@ -93,16 +95,27 @@ def _build_cap_xml(warning: dict, counties_override=None) -> str:
     desc_en  = _fmt_params(level_cfg.get("description_en", ""), params)
     instr_pl = _fmt_params(level_cfg.get("instruction_pl", ""), params)
     instr_en = _fmt_params(level_cfg.get("instruction_en", ""), params)
+    impacts_pl = _fmt_params(level_cfg.get("impacts_pl", ""), params)
+    impacts_en = _fmt_params(level_cfg.get("impacts_en", ""), params)
 
+    # Synoptyk mógł nadpisać teksty w PL — i opcjonalnie też w EN
     if warning.get("description"):
         desc_pl = warning["description"]
+    if warning.get("description_en"):
+        desc_en = warning["description_en"]
     if warning.get("instruction"):
         instr_pl = warning["instruction"]
+    if warning.get("instruction_en"):
+        instr_en = warning["instruction_en"]
+    if warning.get("impacts"):
+        impacts_pl = warning["impacts"]
+    if warning.get("impacts_en"):
+        impacts_en = warning["impacts_en"]
 
     # Dla Update/Cancel — opisy mogą być puste
     if msg_type == "Cancel":
-        desc_pl  = "Ostrzeżenie meteorologiczne zostało anulowane."
-        desc_en  = "The meteorological warning has been cancelled."
+        desc_pl  = warning.get("description") or warning.get("cancel_reason") or "Ostrzeżenie meteorologiczne zostało anulowane."
+        desc_en  = warning.get("description_en") or "The meteorological warning has been cancelled."
         instr_pl = ""
         instr_en = ""
 
@@ -165,7 +178,8 @@ def _build_cap_xml(warning: dict, counties_override=None) -> str:
         _sub(alert, "references", references_str)
 
     def build_info(lang: str, event: str, desc: str, instr: str,
-                   sender_name: str, headline: str, area_desc: str) -> None:
+                   sender_name: str, headline: str, area_desc: str,
+                   impacts_text: str = "") -> None:
         info = SubElement(alert, "info")
         _sub(info, "language", lang)
         _sub(info, "category", "Met")
@@ -185,6 +199,8 @@ def _build_cap_xml(warning: dict, counties_override=None) -> str:
         _sub(info, "contact", "synoptyk.kraju@imgw.pl")
         _param(info, "awareness_level", awareness_level)
         _param(info, "awareness_type", atype)
+        if impacts_text:
+            _param(info, "impacts", impacts_text)
         _build_area(info, area_desc, counties, polygon, emma_ids)
 
     build_info(
@@ -192,14 +208,16 @@ def _build_cap_xml(warning: dict, counties_override=None) -> str:
         f"{color_pl} {event_pl}",
         desc_pl, instr_pl,
         "IMGW-PIB Centralne Biuro Prognoz Meteorologicznych w Warszawie",
-        headline_pl, area_desc_pl
+        headline_pl, area_desc_pl,
+        impacts_pl,
     )
     build_info(
         "en-GB",
         f"{color_en} {event_en}",
         desc_en, instr_en,
         "IMGW-PIB, Meteorological Forecast Centre, Warszawa",
-        headline_en, area_desc_en
+        headline_en, area_desc_en,
+        impacts_en,
     )
 
     # Dodaj elewację do obu bloków info

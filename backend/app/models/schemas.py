@@ -22,7 +22,13 @@ class WarningCreate(BaseModel):
     expires: str
     headline: Optional[str] = None
     description: Optional[str] = None
+    impacts: Optional[str] = None
     instruction: Optional[str] = None
+    # Wersje angielskie (dla bloku <info lang="en-GB"> w CAP i exportu PDF EN)
+    headline_en: Optional[str] = None
+    description_en: Optional[str] = None
+    impacts_en: Optional[str] = None
+    instruction_en: Optional[str] = None
     sender: str = "imgw-pib@meteo.pl"
     sender_name: str = "IMGW-PIB Centrum Modelowania Meteorologicznego"
     altitude_from_m: Optional[float] = None
@@ -30,6 +36,7 @@ class WarningCreate(BaseModel):
     # --- Update/Cancel fields ---
     msg_type: str = "Alert"          # Alert | Update | Cancel
     references_id: Optional[str] = None   # ID ostrzeżenia które to aktualizuje
+    operation_hint: Optional[str] = None  # create | amend | escalate | deescalate | extend | shorten | expand_area | cut_area | full_cancel | partial_cancel
 
 
 class WarningDB(WarningCreate):

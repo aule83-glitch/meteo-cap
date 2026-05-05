@@ -10,6 +10,19 @@ import { getDraft, setDraft, resetDraft } from '../../utils/editorDraft';
 
 const API = import.meta.env.VITE_API_URL || '/api';
 
+// Zjawiska kumulacyjne — przy escalate/deescalate pokazujemy pola "zaobserwowano dotychczas" / "prognoza pozostała"
+const CUMULATIVE_PHENOMENA = new Set([
+  'intensywne_opady_deszczu', 'intensywne_opady_sniegu', 'opady_sniegu',
+  'silny_deszcz_z_burzami', 'burze',
+]);
+const PHENOMENON_UNITS = {
+  intensywne_opady_deszczu: 'mm',
+  intensywne_opady_sniegu:  'cm',
+  opady_sniegu:             'cm',
+  silny_deszcz_z_burzami:   'mm',
+  burze:                    'mm',
+};
+
 function getDefaultParams(phenomenon) {
   const defs = PARAM_DEFS[phenomenon] || [];
   const params = {};
@@ -100,8 +113,22 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
   const [description, setDescription] = useState(_d.description || '');
   const [impacts, setImpacts]         = useState(_d.impacts || '');
   const [instruction, setInstruction] = useState(_d.instruction || '');
+  // Wersje angielskie (dla MeteoAlarm i exportu EN)
+  const [descriptionEn, setDescriptionEn] = useState(_d.descriptionEn || '');
+  const [impactsEn, setImpactsEn]         = useState(_d.impactsEn || '');
+  const [instructionEn, setInstructionEn] = useState(_d.instructionEn || '');
+  // Aktywny język w textarea (per-pole, ale dla prostoty jeden globalny toggle)
+  const [textLang, setTextLang] = useState('pl');  // 'pl' | 'en'
   const [msgType, setMsgType] = useState(_d.msgType || 'Alert');
   const [referencesId, setReferencesId] = useState(_d.referencesId || '');
+  const [operationHint, setOperationHint] = useState(_d.operationHint || 'create');
+  // Dialog "powiat poza pierwotnym obszarem"
+  const [expandDialog, setExpandDialog] = useState(null);   // null | { newCounties, oldCounties } 
+  // Kontekst eskalacji/deeskalacji — dla zjawisk kumulacyjnych (opady)
+  const [observedValue, setObservedValue] = useState('');
+  const [forecastValue, setForecastValue] = useState('');
+  const originalForUpdate = useRef(null);
+  const loadingFromHistory = useRef(false);  // zapobiega reset params/texts przez useEffect([phenomenon]) podczas ładowania
   const [previewXml, setPreviewXml]       = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [presets, setPresets]             = useState(() => {
@@ -114,6 +141,7 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
   const [altTo, setAltTo]                 = useState(_d.altTo || '');
   const fileInputRef                       = useRef(null);
   const [saving, setSaving] = useState(false);
+  const saveInProgress = useRef(false);  // mutex — blokuje duplikaty przy wielokrotnym kliknięciu
   const [imgwImporting, setImgwImporting] = useState(false);
   const [imgwPreview, setImgwPreview]     = useState(null); // null | {warnings, count, skipped}
   const levelTimer = useRef(null);
@@ -122,6 +150,9 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
   const descriptionUserEdited = useRef(false);
   const instructionUserEdited = useRef(false);
   const impactsUserEdited     = useRef(false);
+  const descriptionEnUserEdited = useRef(false);
+  const instructionEnUserEdited = useRef(false);
+  const impactsEnUserEdited     = useRef(false);
   const lastDefaultDescription = useRef('');
   const lastDefaultInstruction = useRef('');
   const lastDefaultImpacts     = useRef('');
@@ -143,12 +174,22 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
   const defs = PARAM_DEFS[phenomenon] || [];
 
   // When phenomenon changes, reset params AND oznacz pola jako nie-edytowane
+  // WYJĄTEK: gdy ładujemy ostrzeżenie z historii (loadingFromHistory.current = true)
   useEffect(() => {
+    if (loadingFromHistory.current) {
+      // Nie resetuj — params i texty już zostały ustawione przez handleLoadForUpdate
+      loadingFromHistory.current = false;
+      return;
+    }
     const newParams = getDefaultParams(phenomenon);
     setParams(newParams);
     // Reset flag edycji przy zmianie zjawiska
     descriptionUserEdited.current = false;
+    impactsUserEdited.current = false;
     instructionUserEdited.current = false;
+    descriptionEnUserEdited.current = false;
+    impactsEnUserEdited.current = false;
+    instructionEnUserEdited.current = false;
   }, [phenomenon]);
 
   // Debounced level check
@@ -168,38 +209,143 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     return () => clearTimeout(levelTimer.current);
   }, [phenomenon, params]);
 
-  // Pobierz domyślne teksty gdy zmienia się zjawisko lub stopień
+  // Pobierz domyślne teksty gdy zmienia się zjawisko, stopień lub parametry (suwaki)
   // Nie nadpisuj jeśli użytkownik ręcznie edytował pole
+  // Debounce 250ms żeby nie zalewać backendu przy przeciąganiu suwaka
   useEffect(() => {
     if (!level || !phenomenon) return;
-    axios.get(`${API}/warnings/default-texts`, {
-      params: { phenomenon, level, params: JSON.stringify(params) }
-    })
-      .then(r => {
-        const { description: defDesc, impacts: defImpacts, instruction: defInstr } = r.data;
-        if (!descriptionUserEdited.current) {
-          setDescription(defDesc || '');
-          lastDefaultDescription.current = defDesc || '';
-        }
-        if (!impactsUserEdited.current) {
-          setImpacts(defImpacts || '');
-          lastDefaultImpacts.current = defImpacts || '';
-        }
-        if (!instructionUserEdited.current) {
-          setInstruction(defInstr || '');
-          lastDefaultInstruction.current = defInstr || '';
-        }
+    const timer = setTimeout(() => {
+      axios.get(`${API}/warnings/default-texts`, {
+        params: { phenomenon, level, params: JSON.stringify(params) }
       })
-      .catch(() => {});
+        .then(r => {
+          const d = r.data || {};
+          // Pola PL
+          if (!descriptionUserEdited.current) {
+            setDescription(d.description_pl || d.description || '');
+            lastDefaultDescription.current = d.description_pl || d.description || '';
+          }
+          if (!impactsUserEdited.current) {
+            setImpacts(d.impacts_pl || d.impacts || '');
+            lastDefaultImpacts.current = d.impacts_pl || d.impacts || '';
+          }
+          if (!instructionUserEdited.current) {
+            setInstruction(d.instruction_pl || d.instruction || '');
+            lastDefaultInstruction.current = d.instruction_pl || d.instruction || '';
+          }
+          // Pola EN — analogicznie
+          if (!descriptionEnUserEdited.current) {
+            setDescriptionEn(d.description_en || '');
+          }
+          if (!impactsEnUserEdited.current) {
+            setImpactsEn(d.impacts_en || '');
+          }
+          if (!instructionEnUserEdited.current) {
+            setInstructionEn(d.instruction_en || '');
+          }
+        })
+        .catch(() => {});
+    }, 250);
+    return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phenomenon, level]);
+  }, [phenomenon, level, JSON.stringify(params)]);
+
+  // Auto-zgadywanie operation_hint na podstawie diff oryginału vs aktualnych wartości (tryb Update)
+  useEffect(() => {
+    if (msgType !== 'Update') return;
+    const orig = originalForUpdate.current;
+    if (!orig) return;
+
+    // Liczymy diff
+    const newCountiesIds = (selectedCounties || []).map(c => String(c.id));
+    const origIds = orig.counties_ids || [];
+    const sameCounties = newCountiesIds.length === origIds.length &&
+      newCountiesIds.every(id => origIds.includes(id));
+    const expanded = newCountiesIds.length > origIds.length;
+    const shrunk   = newCountiesIds.length < origIds.length;
+    const expiresChanged = orig.expires && expires && new Date(orig.expires).getTime() !== new Date(expires).getTime();
+    const expiresExtended = orig.expires && expires && new Date(expires) > new Date(orig.expires);
+    const expiresShortened = orig.expires && expires && new Date(expires) < new Date(orig.expires);
+    const levelChanged = orig.level !== level;
+    const escalation   = level > orig.level;
+    const deescalation = level < orig.level;
+
+    // Logika priorytetowa
+    let guess = 'amend';
+    if (escalation)         guess = 'escalate';
+    else if (deescalation)  guess = 'deescalate';
+    else if (expanded && sameCounties === false) guess = 'expand_area';
+    else if (shrunk)        guess = 'cut_area';
+    else if (expiresExtended && sameCounties && !levelChanged)  guess = 'extend';
+    else if (expiresShortened && sameCounties && !levelChanged) guess = 'shorten';
+
+    setOperationHint(guess);
+    // Resetuj kontekst eskalacji jeśli zmiana na operację która tego nie używa
+    if (guess !== 'escalate' && guess !== 'deescalate') {
+      setObservedValue(''); setForecastValue('');
+    }
+  }, [msgType, selectedCounties, expires, level, onset]);
+
+  // Wykryj powiaty które NIGDY nie były w grupie ostrzeżenia (tryb Update)
+  // Trigger TYLKO gdy zaznaczamy WIĘCEJ powiatów niż miał oryginał — nie przy zmniejszaniu obszaru
+  const newCountiesOutsideGroup = (() => {
+    if (msgType !== 'Update' || !originalForUpdate.current) return [];
+    const orig = originalForUpdate.current;
+    const origCount = orig.counties_ids?.length || 0;
+    // Jeśli zaznaczono mniej lub tyle samo co oryginał — to redukcja obszaru, nie rozszerzenie
+    if ((selectedCounties || []).length <= origCount) return [];
+    const ever = orig.counties_in_group_ever;
+    if (!ever || !(ever instanceof Set)) return [];
+    return (selectedCounties || []).filter(c => !ever.has(String(c.id)));
+  })();
+
+  // Wczytaj szablon opisu dla wybranej operacji Update
+  useEffect(() => {
+    if (msgType !== 'Update' || !operationHint || operationHint === 'create') return;
+    if (!originalForUpdate.current) return;
+    const orig = originalForUpdate.current;
+    // Kontekst dla szablonu
+    const obs = parseFloat(observedValue) || 0;
+    const fc  = parseFloat(forecastValue) || 0;
+    const total = obs + fc;
+    const context = {
+      old_level: orig.level,
+      new_level: level,
+      old_param_value: '',
+      expires: expires ? new Date(expires).toLocaleString('pl-PL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '',
+      observed_value: observedValue || '',
+      forecast_value: forecastValue || '',
+      total_value:    obs || fc ? String(total) : '',
+    };
+    // Debounce 300ms żeby nie spamować przy wpisywaniu w pola observed/forecast
+    const timer = setTimeout(() => {
+      axios.get(`${API}/warnings/update-template`, {
+        params: {
+          phenomenon,
+          operation: operationHint,
+          params:    JSON.stringify(params),
+          context:   JSON.stringify(context),
+        }
+      }).then(r => {
+        const tmpl = r.data?.rendered;
+        if (tmpl) {
+          setDescription(tmpl);
+          descriptionUserEdited.current = false;
+        }
+      }).catch(() => {});
+    }, 300);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [operationHint, msgType, JSON.stringify(params), level, observedValue, forecastValue]);
 
   // Wczytaj dane ostrzeżenia do formularza przy wyborze Update
   const handleLoadForUpdate = useCallback((warningId) => {
     setReferencesId(warningId);
-    if (!warningId || msgType !== 'Update') return;
+    if (!warningId) return;
     const orig = warnings.find(w => w.id === warningId);
     if (!orig) return;
+    // Ustaw flagę — zapobiega nadpisaniu params/texts przez useEffect([phenomenon])
+    loadingFromHistory.current = true;
     // Wypełnij formularz danymi oryginału — synoptyk może je zmodyfikować
     setPhenomenon(orig.phenomenon || 'silny_wiatr');
     setParams(orig.params || {});
@@ -207,8 +353,11 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     setExpires(orig.expires ? orig.expires.slice(0, 16) : getISOLocal(24 * 60));
     setHeadline(orig.headline || '');
     setDescription(orig.description || '');
+    setDescriptionEn(orig.description_en || '');
     setImpacts(orig.impacts || '');
+    setImpactsEn(orig.impacts_en || '');
     setInstruction(orig.instruction || '');
+    setInstructionEn(orig.instruction_en || '');
     setAltFrom(orig.altitude_from_m != null ? String(orig.altitude_from_m) : '');
     setAltTo(orig.altitude_to_m != null ? String(orig.altitude_to_m) : '');
     // Traktuj załadowane teksty jako ręcznie edytowane (nie zastępuj defaultami)
@@ -222,8 +371,44 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     if (onLoadCounties && orig.counties?.length) {
       onLoadCounties(orig.counties);
     }
+    // Snapshot oryginału — do auto-zgadywania operacji przy diff
+    originalForUpdate.current = {
+      level: orig.level,
+      phenomenon: orig.phenomenon,
+      params: { ...orig.params },
+      counties_ids: (orig.counties || []).map(c => String(c.id)),
+      counties_in_group_ever: new Set((orig.counties || []).map(c => String(c.id))),  // wypełnione async
+      expires: orig.expires,
+      onset: orig.onset,
+      group_id: orig.warning_group_id || orig.id,
+    };
+    // Asynchronicznie pobierz pełną historię grupy żeby znać wszystkie powiaty kiedykolwiek obecne
+    axios.get(`${API}/warnings/${warningId}/group`)
+      .then(r => {
+        const allEver = new Set();
+        (r.data?.versions || []).forEach(v => {
+          (v.counties || []).forEach(c => allEver.add(String(c.id)));
+        });
+        if (originalForUpdate.current && originalForUpdate.current.group_id === (orig.warning_group_id || orig.id)) {
+          originalForUpdate.current.counties_in_group_ever = allEver;
+        }
+      })
+      .catch(() => {});
+    setOperationHint('amend');  // domyślnie korekta — autoguess zaktualizuje
     onStatusChange({ msg: `Wczytano ostrzeżenie do aktualizacji: ${orig.phenomenon?.replace(/_/g,' ')} St.${orig.level}`, type: 'info' });
-  }, [warnings, msgType, onStatusChange, onLoadCounties]);
+  }, [warnings, onStatusChange, onLoadCounties]);
+
+  // Nasłuch na event z Status (przycisk "Edytuj" w panelu szczegółów)
+  useEffect(() => {
+    const handler = (e) => {
+      const wid = e.detail?.warningId;
+      if (!wid) return;
+      setMsgType('Update');
+      handleLoadForUpdate(wid);  // bez setTimeout — handleLoadForUpdate już nie zależy od msgType
+    };
+    window.addEventListener('meteocap:loadForUpdate', handler);
+    return () => window.removeEventListener('meteocap:loadForUpdate', handler);
+  }, [handleLoadForUpdate]);
 
   const handleParamChange = useCallback((key, value) => {
     setParams(prev => ({ ...prev, [key]: value }));
@@ -274,12 +459,46 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
       onStatusChange({ msg: 'Parametry nie spełniają kryteriów żadnego stopnia ostrzeżenia', type: 'error' });
       return;
     }
+    if (saveInProgress.current) return;  // blokuj duplikaty
+    if (msgType === 'Update' && referencesId && newCountiesOutsideGroup.length > 0) {
+      setExpandDialog({
+        newCounties:  newCountiesOutsideGroup,
+        oldCounties: (selectedCounties || []).filter(c => !newCountiesOutsideGroup.find(nc => nc.id === c.id)),
+      });
+      return;
+    }
+    await performSave('normal');
+  };
+
+  const performSave = async (mode = 'normal') => {
+    if (saveInProgress.current) return;
+    saveInProgress.current = true;
     setSaving(true);
     onStatusChange({ msg: 'Zapisywanie ostrzeżenia...', type: 'info' });
     try {
       let res;
-      if (msgType === 'Update' && referencesId) {
-        // PUT nadpisuje oryginał — nowe ostrzeżenie zastępuje stare w miejscu
+      if (mode === 'split' || mode === 'replace') {
+        // Wywołaj endpoint expand-area
+        const allC = selectedCounties || [];
+        res = await axios.post(`${API}/warnings/${referencesId}/expand-area`, {
+          all_counties: allC,
+          params,
+          onset:       onset ? new Date(onset).toISOString() : undefined,
+          expires:     expires ? new Date(expires).toISOString() : undefined,
+          headline, description, impacts, instruction,
+          mode,
+        });
+        const a = res.data?.updated_in_group_a || res.data?.cancelled_group_a;
+        const b = res.data?.new_alert_group_b;
+        if (b) onWarningCreated(b);
+        if (a && mode === 'split') onWarningCreated(a);
+        onStatusChange({
+          msg: mode === 'split'
+            ? `✅ Aktualizacja + nowe ostrzeżenie (${b?.counties?.length || 0} nowych powiatów) zapisane`
+            : `✅ Stare odwołane, nowe ostrzeżenie z całością (${b?.counties?.length || 0} powiatów) zapisane`,
+          type: 'success',
+        });
+      } else if (msgType === 'Update' && referencesId) {
         res = await axios.put(`${API}/warnings/${referencesId}`, buildPayload());
         onWarningCreated(res.data);
         onStatusChange({ msg: `✅ Aktualizacja St.${res.data.level} — ${phenomenon.replace(/_/g, ' ')} zapisana`, type: 'success' });
@@ -288,11 +507,13 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
         onWarningCreated(res.data);
         onStatusChange({ msg: `Ostrzeżenie stopień ${res.data.level} — ${phenomenon.replace(/_/g, ' ')} zapisane`, type: 'success' });
       }
+      setExpandDialog(null);
       resetForm();
     } catch (e) {
-      onStatusChange({ msg: `Błąd zapisu: ${e.message}`, type: 'error' });
+      onStatusChange({ msg: `Błąd zapisu: ${e.response?.data?.detail || e.message}`, type: 'error' });
     } finally {
       setSaving(false);
+      saveInProgress.current = false;
     }
   };
 
@@ -360,8 +581,12 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     description: description || undefined,
     impacts: impacts || undefined,
     instruction: instruction || undefined,
+    description_en: descriptionEn || undefined,
+    impacts_en:     impactsEn || undefined,
+    instruction_en: instructionEn || undefined,
     msg_type: msgType,
     references_id: referencesId || undefined,
+    operation_hint: operationHint || undefined,
     altitude_from_m: altFrom ? parseFloat(altFrom) : undefined,
     altitude_to_m:   altTo   ? parseFloat(altTo)   : undefined,
   });
@@ -539,10 +764,15 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
 
         {/* Typ wiadomości */}
         <div className="form-section">
-          <div className="form-section-label">Typ komunikatu CAP</div>
+          <div className="form-section-label">Rodzaj komunikatu</div>
           <div style={{ display: 'flex', gap: 6, marginBottom: msgType !== 'Alert' ? 10 : 0 }}>
-            {['Alert', 'Update', 'Cancel'].map(t => (
+            {[
+              ['Alert',  '🆕 Ostrzeżenie',  'Pierwsze wydanie nowego ostrzeżenia (CAP Alert)'],
+              ['Update', '🔄 Aktualizacja', 'Aktualizacja wcześniejszego ostrzeżenia (CAP Update)'],
+              ['Cancel', '❌ Odwołanie',    'Odwołanie obowiązującego ostrzeżenia (CAP Cancel)'],
+            ].map(([t, label, hint]) => (
               <button key={t} onClick={() => { setMsgType(t); setReferencesId(''); }}
+                title={hint}
                 style={{
                   flex: 1, padding: '7px 0', borderRadius: 'var(--radius-md)',
                   border: '1px solid ' + (msgType === t ? 'var(--accent-blue)' : 'var(--border)'),
@@ -551,7 +781,7 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
                   fontSize: 12, fontWeight: 600, cursor: 'pointer',
                   fontFamily: 'var(--font-display)',
                 }}>
-                {t === 'Alert' ? '🆕 Alert' : t === 'Update' ? '🔄 Update' : '❌ Cancel'}
+                {label}
               </button>
             ))}
           </div>
@@ -566,7 +796,7 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
                 )}
               </label>
               {/* Lista rozwijana zamiast wpisywania ID */}
-              {warnings && warnings.filter(w => w.status === 'active' || w.status === 'pending').length > 0 ? (
+              {warnings && warnings.filter(w => (w.status === 'active' || w.status === 'pending') && w.is_active_leaf !== false).length > 0 ? (
                 <select className="form-select" value={referencesId}
                   onChange={e => {
                     if (msgType === 'Update') {
@@ -577,13 +807,14 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
                   }}>
                   <option value="">— wybierz ostrzeżenie —</option>
                   {warnings
-                    .filter(w => w.status === 'active' || w.status === 'pending')
+                    .filter(w => (w.status === 'active' || w.status === 'pending') && w.is_active_leaf !== false)
                     .map(w => {
                       const ph = w.phenomenon?.replace(/_/g,' ') || '';
                       const status = w.status === 'active' ? '● Aktywne' : '○ Nadch.';
+                      const ver = w.version > 1 ? ` v${w.version}` : '';
                       return (
                         <option key={w.id} value={w.id}>
-                          {status} | St.{w.level} {ph} | {w.id?.slice(0,8)}
+                          {status} | St.{w.level} {ph}{ver} | {w.id?.slice(0,8)}
                         </option>
                       );
                     })
@@ -594,6 +825,102 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
                   background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)',
                   border: '1px solid var(--border)' }}>
                   Brak aktywnych/nadchodzących ostrzeżeń do {msgType === 'Update' ? 'aktualizacji' : 'anulowania'}
+                </div>
+              )}
+
+              {/* Auto-zgadywany typ operacji — synoptyk może poprawić */}
+              {msgType === 'Update' && referencesId && (
+                <div style={{marginTop:10, padding:10, background:'var(--bg-elevated)',
+                  borderRadius:'var(--radius-md)', border:'1px solid var(--border)'}}>
+                  <div style={{fontSize:10, color:'var(--text-muted)', textTransform:'uppercase',
+                    letterSpacing:'0.06em', marginBottom:6}}>
+                    Co robisz? <span style={{color:'var(--accent-blue)', textTransform:'none'}}>
+                    (auto: <b>{operationHint}</b> — popraw jeśli źle)</span>
+                  </div>
+                  <select className="form-select" value={operationHint}
+                    onChange={e => setOperationHint(e.target.value)}>
+                    <option value="amend">📝 Korekta detali (parametry, opis)</option>
+                    <option value="escalate">⬆ Eskalacja — zjawisko nasila się</option>
+                    <option value="deescalate">⬇ Deeskalacja — zjawisko słabnie</option>
+                    <option value="extend">⏰ Przedłużenie czasu</option>
+                    <option value="shorten">⏰ Skrócenie czasu</option>
+                    <option value="expand_area">➕ Powiększenie obszaru</option>
+                    <option value="cut_area">✂ Wycięcie części obszaru</option>
+                  </select>
+
+                  {/* Ostrzeżenie: nowe powiaty poza pierwotnym obszarem grupy */}
+                  {newCountiesOutsideGroup.length > 0 && (
+                    <div style={{marginTop:10, padding:10,
+                      background:'rgba(251,191,36,0.1)',
+                      borderRadius:'var(--radius-md)',
+                      border:'1px solid var(--warn-2)'}}>
+                      <div style={{fontSize:11,fontWeight:600,color:'var(--warn-2)',marginBottom:5,
+                        display:'flex',alignItems:'center',gap:6}}>
+                        ⚠ Wykryto {newCountiesOutsideGroup.length} powiat{newCountiesOutsideGroup.length===1?'':newCountiesOutsideGroup.length<5?'y':'ów'} poza pierwotnym obszarem
+                      </div>
+                      <div style={{fontSize:10,color:'var(--text-secondary)',lineHeight:1.5,marginBottom:8}}>
+                        Zaznaczone powiaty (
+                        {newCountiesOutsideGroup.slice(0,5).map(c => c.name).join(', ')}
+                        {newCountiesOutsideGroup.length > 5 ? ` i ${newCountiesOutsideGroup.length-5} więcej` : ''}
+                        ) nigdy nie należały do tego ostrzeżenia. Standard CAP wymaga, by dla nowego obszaru
+                        wydać <b>nowe ostrzeżenie</b> (Alert), a nie aktualizację (Update).
+                      </div>
+                      <div style={{fontSize:10,color:'var(--text-muted)',fontStyle:'italic'}}>
+                        💡 Przy zapisie pojawi się okno wyboru — możesz rozszerzyć obszar tworząc dwa komunikaty
+                        (zalecane) lub zastąpić całość nowym ostrzeżeniem.
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Kontekst eskalacji/deeskalacji dla zjawisk kumulacyjnych */}
+                  {(operationHint === 'escalate' || operationHint === 'deescalate') &&
+                   CUMULATIVE_PHENOMENA.has(phenomenon) && (
+                    <div style={{marginTop:10, padding:10, background:'var(--bg-surface)',
+                      borderRadius:'var(--radius-md)', border:'1px dashed var(--border-active)'}}>
+                      <div style={{fontSize:10, color:'var(--accent-blue)', textTransform:'uppercase',
+                        letterSpacing:'0.06em', marginBottom:6}}>
+                        📊 Kontekst {operationHint === 'escalate' ? 'eskalacji' : 'deeskalacji'} (do opisu)
+                      </div>
+                      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:6}}>
+                        <div>
+                          <label style={{fontSize:10, color:'var(--text-muted)', display:'block', marginBottom:3}}>
+                            Zaobserwowano dotychczas
+                          </label>
+                          <div style={{display:'flex', alignItems:'center', gap:4}}>
+                            <input type="number" className="form-input" value={observedValue}
+                              onChange={e => setObservedValue(e.target.value)}
+                              placeholder="np. 35" style={{fontSize:11, flex:1}} step="0.1"/>
+                            <span style={{fontSize:10, color:'var(--text-muted)', minWidth:20}}>
+                              {PHENOMENON_UNITS[phenomenon] || ''}
+                            </span>
+                          </div>
+                        </div>
+                        <div>
+                          <label style={{fontSize:10, color:'var(--text-muted)', display:'block', marginBottom:3}}>
+                            Prognoza pozostała
+                          </label>
+                          <div style={{display:'flex', alignItems:'center', gap:4}}>
+                            <input type="number" className="form-input" value={forecastValue}
+                              onChange={e => setForecastValue(e.target.value)}
+                              placeholder="np. 25" style={{fontSize:11, flex:1}} step="0.1"/>
+                            <span style={{fontSize:10, color:'var(--text-muted)', minWidth:20}}>
+                              {PHENOMENON_UNITS[phenomenon] || ''}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      {(parseFloat(observedValue) || 0) + (parseFloat(forecastValue) || 0) > 0 && (
+                        <div style={{fontSize:11, color:'var(--success)', textAlign:'right',
+                          fontFamily:'var(--font-mono)'}}>
+                          Suma łącznie: <b>{(parseFloat(observedValue) || 0) + (parseFloat(forecastValue) || 0)} {PHENOMENON_UNITS[phenomenon] || ''}</b>
+                        </div>
+                      )}
+                      <div style={{fontSize:10, color:'var(--text-muted)', marginTop:6, lineHeight:1.4}}>
+                        Wartości zostaną podstawione w opisie. Pozostaw puste jeśli nie chcesz ich używać —
+                        szablon użyje "—" w miejsce brakujących liczb.
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -747,46 +1074,99 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
               onChange={e => setHeadline(e.target.value)}
             />
           </div>
+          {/* Toggle języka dla wszystkich pól treści */}
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8,
+            padding:'6px 10px', background:'var(--bg-elevated)', borderRadius:'var(--radius-md)' }}>
+            <span style={{ fontSize:10, color:'var(--text-muted)', textTransform:'uppercase',
+              letterSpacing:'0.06em' }}>Język treści ostrzeżenia:</span>
+            <div style={{ display:'flex', gap:4, marginLeft:'auto' }}>
+              <button onClick={() => setTextLang('pl')}
+                style={{ padding:'3px 10px', fontSize:11, fontWeight:600,
+                  background: textLang==='pl' ? 'var(--accent-blue)' : 'transparent',
+                  color: textLang==='pl' ? '#000' : 'var(--text-secondary)',
+                  border: '1px solid ' + (textLang==='pl' ? 'var(--accent-blue)' : 'var(--border)'),
+                  borderRadius:'var(--radius-md)', cursor:'pointer' }}
+                title="Polski (pl-PL) — domyślny język ostrzeżeń">
+                🇵🇱 PL
+              </button>
+              <button onClick={() => setTextLang('en')}
+                style={{ padding:'3px 10px', fontSize:11, fontWeight:600,
+                  background: textLang==='en' ? 'var(--accent-blue)' : 'transparent',
+                  color: textLang==='en' ? '#000' : 'var(--text-secondary)',
+                  border: '1px solid ' + (textLang==='en' ? 'var(--accent-blue)' : 'var(--border)'),
+                  borderRadius:'var(--radius-md)', cursor:'pointer' }}
+                title="Angielski (en-GB) — wersja dla MeteoAlarm i odbiorców międzynarodowych">
+                🇬🇧 EN
+              </button>
+            </div>
+          </div>
+
           <div className="form-input-group" style={{ marginBottom: 10 }}>
-            <label className="form-input-label">Opis przebiegu</label>
+            <label className="form-input-label">
+              {textLang === 'pl' ? 'Opis przebiegu' : 'Course description (EN)'}
+              {textLang === 'en' && (
+                <span style={{ marginLeft:6, fontSize:9, color:'var(--text-muted)' }}>
+                  — wersja angielska dla MeteoAlarm
+                </span>
+              )}
+            </label>
             <textarea
               className="form-textarea"
-              placeholder="Prognozowany przebieg zjawiska..."
-              value={description}
+              placeholder={textLang === 'pl' ? "Prognozowany przebieg zjawiska..." : "Forecast course of the phenomenon..."}
+              value={textLang === 'pl' ? description : descriptionEn}
               onChange={e => {
-                setDescription(e.target.value);
-                if (e.target.value !== lastDefaultDescription.current) {
-                  descriptionUserEdited.current = true;
+                if (textLang === 'pl') {
+                  setDescription(e.target.value);
+                  if (e.target.value !== lastDefaultDescription.current) {
+                    descriptionUserEdited.current = true;
+                  }
+                } else {
+                  setDescriptionEn(e.target.value);
+                  descriptionEnUserEdited.current = true;
                 }
               }}
               rows={2}
             />
           </div>
           <div className="form-input-group" style={{ marginBottom: 10 }}>
-            <label className="form-input-label">Spodziewane skutki</label>
+            <label className="form-input-label">
+              {textLang === 'pl' ? 'Spodziewane skutki' : 'Expected impacts (EN)'}
+            </label>
             <textarea
               className="form-textarea"
-              placeholder="Spodziewane skutki zjawiska..."
-              value={impacts}
+              placeholder={textLang === 'pl' ? "Spodziewane skutki zjawiska..." : "Expected impacts of the phenomenon..."}
+              value={textLang === 'pl' ? impacts : impactsEn}
               onChange={e => {
-                setImpacts(e.target.value);
-                if (e.target.value !== lastDefaultImpacts.current) {
-                  impactsUserEdited.current = true;
+                if (textLang === 'pl') {
+                  setImpacts(e.target.value);
+                  if (e.target.value !== lastDefaultImpacts.current) {
+                    impactsUserEdited.current = true;
+                  }
+                } else {
+                  setImpactsEn(e.target.value);
+                  impactsEnUserEdited.current = true;
                 }
               }}
               rows={3}
             />
           </div>
           <div className="form-input-group">
-            <label className="form-input-label">Zalecenia — co robić?</label>
+            <label className="form-input-label">
+              {textLang === 'pl' ? 'Zalecenia — co robić?' : 'Recommendations — what to do (EN)'}
+            </label>
             <textarea
               className="form-textarea"
-              placeholder="Zalecane działania dla służb i ludności..."
-              value={instruction}
+              placeholder={textLang === 'pl' ? "Zalecane działania dla służb i ludności..." : "Recommended actions for services and the public..."}
+              value={textLang === 'pl' ? instruction : instructionEn}
               onChange={e => {
-                setInstruction(e.target.value);
-                if (e.target.value !== lastDefaultInstruction.current) {
-                  instructionUserEdited.current = true;
+                if (textLang === 'pl') {
+                  setInstruction(e.target.value);
+                  if (e.target.value !== lastDefaultInstruction.current) {
+                    instructionUserEdited.current = true;
+                  }
+                } else {
+                  setInstructionEn(e.target.value);
+                  instructionEnUserEdited.current = true;
                 }
               }}
               rows={3}
@@ -939,6 +1319,105 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* === MODAL: ROZSZERZENIE OBSZARU (nowe powiaty poza grupą) === */}
+      {expandDialog && (
+        <div style={{position:'fixed',inset:0,zIndex:9100,background:'rgba(0,0,0,0.78)',
+          display:'flex',alignItems:'center',justifyContent:'center',padding:20}}
+          onClick={() => !saving && setExpandDialog(null)}>
+          <div style={{width:'min(95vw,640px)',maxHeight:'90vh',overflowY:'auto',
+            background:'var(--bg-surface)',border:'1px solid var(--border)',
+            borderRadius:'var(--radius-lg)',boxShadow:'0 8px 64px rgba(0,0,0,0.85)'}}
+            onClick={e=>e.stopPropagation()}>
+
+            <div style={{padding:'16px 20px',borderBottom:'1px solid var(--border)',
+              background:'rgba(251,191,36,0.08)'}}>
+              <div style={{fontSize:15,fontWeight:700,color:'var(--text-primary)',
+                display:'flex',alignItems:'center',gap:8}}>
+                ⚠ Wybierz sposób rozszerzenia obszaru
+              </div>
+              <div style={{fontSize:11,color:'var(--text-muted)',marginTop:6,lineHeight:1.5}}>
+                Zaznaczyłeś <b style={{color:'var(--warn-2)'}}>{expandDialog.newCounties.length} powiat{expandDialog.newCounties.length===1?'':expandDialog.newCounties.length<5?'y':'ów'}</b> spoza
+                pierwotnego obszaru ostrzeżenia. Standard CAP wymaga, aby dla nowego obszaru
+                wydać <b>nowe ostrzeżenie</b> (Alert), bo odbiorcy z tych powiatów wcześniej go nie dostali.
+              </div>
+            </div>
+
+            <div style={{padding:'16px 20px'}}>
+              {/* Lista nowych powiatów */}
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:10,color:'var(--text-muted)',textTransform:'uppercase',
+                  letterSpacing:'0.06em',marginBottom:6}}>
+                  Powiaty poza pierwotnym obszarem ({expandDialog.newCounties.length}):
+                </div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:4,maxHeight:80,overflowY:'auto',
+                  padding:6,background:'var(--bg-elevated)',borderRadius:'var(--radius-md)'}}>
+                  {expandDialog.newCounties.map(c => (
+                    <span key={c.id} style={{fontSize:10,padding:'2px 7px',background:'var(--warn-2)',
+                      color:'#000',borderRadius:3,fontFamily:'var(--font-mono)',fontWeight:600}}>
+                      {c.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Opcja 1: Split (zalecana) */}
+              <button onClick={() => performSave('split')} disabled={saving}
+                style={{display:'block',width:'100%',padding:14,marginBottom:10,
+                  background:'rgba(34,197,94,0.12)',
+                  border:'2px solid var(--success)',borderRadius:'var(--radius-md)',
+                  cursor:saving?'wait':'pointer',textAlign:'left',color:'var(--text-primary)'}}>
+                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
+                  <span style={{fontSize:20}}>➕</span>
+                  <span style={{fontSize:13,fontWeight:700}}>Rozszerz obszar (zalecane)</span>
+                  <span style={{marginLeft:'auto',fontSize:9,padding:'2px 6px',
+                    background:'var(--success)',color:'#000',borderRadius:10,fontWeight:700}}>
+                    DOMYŚLNE
+                  </span>
+                </div>
+                <div style={{fontSize:11,color:'var(--text-secondary)',lineHeight:1.5}}>
+                  System wyśle <b>dwa komunikaty</b>:<br/>
+                  • <b>Aktualizacja</b> dla {expandDialog.oldCounties.length} powiat{expandDialog.oldCounties.length===1?'a':'ów'} z pierwotnego obszaru<br/>
+                  • <b>Nowe ostrzeżenie</b> dla {expandDialog.newCounties.length} powiat{expandDialog.newCounties.length===1?'a':expandDialog.newCounties.length<5?'ów':'ów'} dodanych teraz<br/>
+                  Historia obu obszarów jest zachowana niezależnie.
+                </div>
+              </button>
+
+              {/* Opcja 2: Replace */}
+              <button onClick={() => performSave('replace')} disabled={saving}
+                style={{display:'block',width:'100%',padding:14,marginBottom:10,
+                  background:'rgba(239,68,68,0.08)',
+                  border:'1px solid var(--warn-3)',borderRadius:'var(--radius-md)',
+                  cursor:saving?'wait':'pointer',textAlign:'left',color:'var(--text-primary)'}}>
+                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
+                  <span style={{fontSize:20}}>♻</span>
+                  <span style={{fontSize:13,fontWeight:700}}>Zastąp wszystko nowym ostrzeżeniem</span>
+                </div>
+                <div style={{fontSize:11,color:'var(--text-secondary)',lineHeight:1.5}}>
+                  Pierwotne ostrzeżenie zostanie <b>odwołane</b> z przyczyną „kontynuacja w nowym ostrzeżeniu".
+                  Wydane zostanie nowe ostrzeżenie obejmujące wszystkie {(selectedCounties||[]).length} powiat{(selectedCounties||[]).length===1?'':'ów'}
+                  jako jedno wydarzenie. <b>Stara historia zostaje zamknięta.</b>
+                </div>
+              </button>
+
+              {/* Anuluj */}
+              <button onClick={() => setExpandDialog(null)} disabled={saving}
+                style={{display:'block',width:'100%',padding:10,
+                  background:'transparent',
+                  border:'1px solid var(--border)',borderRadius:'var(--radius-md)',
+                  cursor:saving?'wait':'pointer',color:'var(--text-muted)',fontSize:12}}>
+                ← Wróć do edycji
+              </button>
+
+              {saving && (
+                <div style={{textAlign:'center',marginTop:10,fontSize:11,color:'var(--accent-blue)'}}>
+                  ⏳ Wysyłanie komunikatów CAP...
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

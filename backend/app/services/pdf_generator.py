@@ -84,6 +84,16 @@ PHENOMENON_LABELS = {
     "opady_sniegu": "Opady śniegu", "przymrozki": "Przymrozki",
 }
 
+PHENOMENON_LABELS_EN = {
+    "burze": "Thunderstorms", "intensywne_opady_deszczu": "Heavy rainfall",
+    "intensywne_opady_sniegu": "Heavy snowfall", "silny_wiatr": "Strong wind",
+    "silny_mroz": "Severe frost", "upal": "Heat wave", "opady_marzniece": "Freezing precipitation",
+    "roztopy": "Snow melt", "silny_deszcz_z_burzami": "Heavy rain with thunderstorms",
+    "zawieje_zamiecie": "Blizzards / snow drifts", "mgla_szadz": "Fog with rime",
+    "gesta_mgla": "Dense fog", "oblodzenie": "Icing",
+    "opady_sniegu": "Snowfall", "przymrozki": "Frost",
+}
+
 LEVEL_COLORS_PDF = {
     1: colors.HexColor("#facc15"),
     2: colors.HexColor("#f97316"),
@@ -99,6 +109,11 @@ STATUS_LABELS = {
     "active": "AKTYWNE", "pending": "NADCHODZĄCE",
     "expired": "WYGASŁE", "cancelled": "ANULOWANE",
     "updated": "ZAKTUALIZOWANE",
+}
+STATUS_LABELS_EN = {
+    "active": "ACTIVE", "pending": "UPCOMING",
+    "expired": "EXPIRED", "cancelled": "CANCELLED",
+    "updated": "UPDATED",
 }
 
 
@@ -130,15 +145,41 @@ def _area_summary(counties: list) -> tuple:
 
 def generate_warning_pdf(
     warnings: list,
-    title: str = "Raport ostrzeżeń meteorologicznych",
-    voivodeship_filter: str = None,  # np. "Mazowieckie" aby filtrować
+    title: str = None,
+    voivodeship_filter: str = None,
+    lang: str = "pl",   # 'pl' lub 'en'
 ) -> bytes:
     """
-    Generuje PDF z raportem ostrzeżeń.
+    Generuje PDF z raportem ostrzeżeń w wybranym języku (pl/en).
     Zwraca bajty PDF lub None jeśli ReportLab niedostępny.
     """
     if not REPORTLAB_AVAILABLE:
         return None
+
+    # Etykiety w obu językach
+    EN = (lang == "en")
+    L = {
+        "title":            "Meteorological warning report" if EN else "Raport ostrzeżeń meteorologicznych",
+        "generated":        "Generated:" if EN else "Wygenerowano:",
+        "warnings_count":   "Number of warnings:" if EN else "Liczba ostrzeżeń:",
+        "filter":           "Filter:" if EN else "Filtr:",
+        "level":            "Level" if EN else "Stopień",
+        "phenomenon":       "Phenomenon" if EN else "Zjawisko",
+        "valid_from":       "Valid from:" if EN else "Obowiązuje od:",
+        "valid_to":         "Valid to:" if EN else "Obowiązuje do:",
+        "area":             "Area:" if EN else "Obszar:",
+        "counties":         "counties" if EN else "powiatów",
+        "course":           "Course:" if EN else "Przebieg:",
+        "impacts":          "Expected impacts:" if EN else "Spodziewane skutki:",
+        "instruction":      "Recommendations — what to do:" if EN else "Zalecenia — co robić:",
+        "no_warnings":      "No active warnings" if EN else "Brak aktywnych ostrzeżeń",
+        "page":             "Page" if EN else "Strona",
+        "of":               "of" if EN else "z",
+        "version":          "version" if EN else "wersja",
+        "footer":           "IMGW-PIB MeteoCAP Editor — CAP 1.2 standard" if EN else "IMGW-PIB MeteoCAP Editor — standard CAP 1.2",
+    }
+    if title is None:
+        title = L["title"]
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -179,7 +220,7 @@ def generate_warning_pdf(
         Paragraph(f'<b>{title}</b>', ParagraphStyle('title',
             fontSize=11, textColor=colors.white, fontName=_FONT_BOLD,
             alignment=TA_CENTER)),
-        Paragraph(f'Stan na:<br/><b>{now_str}</b>', ParagraphStyle('date',
+        Paragraph(f'{"As of" if EN else "Stan na"}:<br/><b>{now_str}</b>', ParagraphStyle('date',
             fontSize=8, textColor=colors.white, fontName=_FONT_REGULAR,
             alignment=TA_RIGHT)),
     ]]
@@ -214,31 +255,39 @@ def generate_warning_pdf(
 
     if not active_warnings:
         story.append(Spacer(1, 1*cm))
-        story.append(Paragraph(
-            "Brak aktywnych lub nadchodzących ostrzeżeń w wybranym zakresie.",
-            style_center))
+        story.append(Paragraph(L["no_warnings"], style_center))
     else:
-        story.append(Paragraph(
-            f"Liczba ostrzeżeń: <b>{len(active_warnings)}</b> "
-            f"(aktywne: {sum(1 for w in active_warnings if w.get('status')=='active')}, "
-            f"nadchodzące: {sum(1 for w in active_warnings if w.get('status')=='pending')})",
-            style_small))
+        if EN:
+            stats = (f"Number of warnings: <b>{len(active_warnings)}</b> "
+                     f"(active: {sum(1 for w in active_warnings if w.get('status')=='active')}, "
+                     f"upcoming: {sum(1 for w in active_warnings if w.get('status')=='pending')})")
+        else:
+            stats = (f"Liczba ostrzeżeń: <b>{len(active_warnings)}</b> "
+                     f"(aktywne: {sum(1 for w in active_warnings if w.get('status')=='active')}, "
+                     f"nadchodzące: {sum(1 for w in active_warnings if w.get('status')=='pending')})")
+        story.append(Paragraph(stats, style_small))
         story.append(Spacer(1, 0.3*cm))
 
         # === TABELA PODSUMOWANIA ===
-        story.append(Paragraph("Podsumowanie ostrzeżeń", style_h2))
+        story.append(Paragraph("Warning summary" if EN else "Podsumowanie ostrzeżeń", style_h2))
 
-        sum_data = [["Zjawisko", "Stopień", "Status", "Obowiązuje od", "Obowiązuje do", "Zasięg"]]
+        sum_data = [[
+            L["phenomenon"], L["level"],
+            "Status",
+            L["valid_from"].rstrip(":"), L["valid_to"].rstrip(":"),
+            "Coverage" if EN else "Zasięg"
+        ]]
         for w in active_warnings:
             lvl = w.get("level", 1)
-            ph = PHENOMENON_LABELS.get(w.get("phenomenon",""), w.get("phenomenon",""))
+            ph_dict = PHENOMENON_LABELS_EN if EN else PHENOMENON_LABELS
+            ph = ph_dict.get(w.get("phenomenon",""), w.get("phenomenon",""))
             area_desc, _ = _area_summary(w.get("counties", []))
             sum_data.append([
                 Paragraph(ph, style_body),
                 Paragraph(f"<b>{lvl}</b>", ParagraphStyle('lc', fontSize=11,
                     textColor=colors.black, fontName=_FONT_BOLD,
                     alignment=TA_CENTER)),
-                Paragraph(STATUS_LABELS.get(w.get("status",""), "—"), style_body),
+                Paragraph((STATUS_LABELS_EN if EN else STATUS_LABELS).get(w.get("status",""), "—"), style_body),
                 Paragraph(_fmt_dt(w.get("onset","")), style_body),
                 Paragraph(_fmt_dt(w.get("expires","")), style_body),
                 Paragraph(area_desc, style_body),
@@ -280,7 +329,8 @@ def generate_warning_pdf(
 
         for w in active_warnings:
             lvl = w.get("level", 1)
-            ph = PHENOMENON_LABELS.get(w.get("phenomenon",""), w.get("phenomenon",""))
+            ph_dict = PHENOMENON_LABELS_EN if EN else PHENOMENON_LABELS
+            ph = ph_dict.get(w.get("phenomenon",""), w.get("phenomenon",""))
             fill_color = LEVEL_COLORS_PDF.get(lvl, colors.yellow)
             bg_color = LEVEL_BG_PDF.get(lvl, colors.white)
             area_desc, voiv_groups = _area_summary(w.get("counties", []))
@@ -290,11 +340,11 @@ def generate_warning_pdf(
             # Nagłówek ostrzeżenia
             hdr_data = [[
                 Paragraph(
-                    f'<b>Stopień {lvl} — {ph}</b>',
+                    f'<b>{L["level"]} {lvl} — {ph}</b>',
                     ParagraphStyle('wh', fontSize=11, fontName=_FONT_BOLD,
                                    textColor=colors.HexColor("#1e3a5f"))),
                 Paragraph(
-                    f'<b>{STATUS_LABELS.get(w.get("status",""), "—")}</b>',
+                    f'<b>{(STATUS_LABELS_EN if EN else STATUS_LABELS).get(w.get("status",""), "—")}</b>',
                     ParagraphStyle('ws', fontSize=9, fontName=_FONT_BOLD,
                                    textColor=colors.white, alignment=TA_RIGHT)),
             ]]
@@ -315,11 +365,11 @@ def generate_warning_pdf(
 
             # Dane szczegółowe
             detail_rows = [
-                ["Identyfikator:", w.get("id","—")[:36]],
-                ["Typ komunikatu:", w.get("msg_type","Alert")],
-                ["Obowiązuje od:", _fmt_dt(w.get("onset",""))],
-                ["Obowiązuje do:", _fmt_dt(w.get("expires",""))],
-                ["Zasięg obszarowy:", area_desc],
+                ["Identifier:" if EN else "Identyfikator:", w.get("id","—")[:36]],
+                ["Message type:" if EN else "Typ komunikatu:", w.get("msg_type","Alert")],
+                [L["valid_from"], _fmt_dt(w.get("onset",""))],
+                [L["valid_to"], _fmt_dt(w.get("expires",""))],
+                ["Coverage:" if EN else "Zasięg obszarowy:", area_desc],
             ]
             detail_table = Table(
                 [[Paragraph(r[0], ParagraphStyle('dl', fontSize=8, fontName=_FONT_BOLD,
@@ -337,7 +387,8 @@ def generate_warning_pdf(
             # Województwa z powiatami
             if voiv_groups:
                 block_elements.append(Spacer(1, 0.15*cm))
-                block_elements.append(Paragraph("Obszar ostrzeżenia:",
+                block_elements.append(Paragraph(
+                    "Warning area:" if EN else "Obszar ostrzeżenia:",
                     ParagraphStyle('al', fontSize=8, fontName=_FONT_BOLD,
                                    textColor=colors.HexColor("#475569"))))
                 for vn, names in sorted(voiv_groups.items()):
@@ -376,33 +427,38 @@ def generate_warning_pdf(
                                        textColor=colors.HexColor("#374151"))))
 
             # Opis przebiegu, skutki i zalecenia
-            if w.get("description"):
+            # W trybie EN: bierz description_en/impacts_en/instruction_en jeśli są, inaczej PL fallback
+            desc_field    = (w.get("description_en") if EN else None) or w.get("description") or ""
+            impacts_field = (w.get("impacts_en")     if EN else None) or w.get("impacts")     or ""
+            instr_field   = (w.get("instruction_en") if EN else None) or w.get("instruction") or ""
+
+            if desc_field:
                 block_elements.append(Spacer(1, 0.15*cm))
                 block_elements.append(Paragraph(
-                    "Przebieg:",
+                    L["course"],
                     ParagraphStyle('sl', fontSize=8, fontName=_FONT_BOLD,
                                    textColor=colors.HexColor("#475569"))))
                 block_elements.append(Paragraph(
-                    f'<i>{w["description"]}</i>', style_body))
+                    f'<i>{desc_field}</i>', style_body))
 
-            if w.get("impacts"):
+            if impacts_field:
                 block_elements.append(Spacer(1, 0.1*cm))
                 block_elements.append(Paragraph(
-                    "Spodziewane skutki:",
+                    L["impacts"],
                     ParagraphStyle('sl2', fontSize=8, fontName=_FONT_BOLD,
                                    textColor=colors.HexColor("#475569"))))
-                for line in w["impacts"].split("\n"):
+                for line in impacts_field.split("\n"):
                     if line.strip():
                         block_elements.append(Paragraph(
                             line.strip(), style_body))
 
-            if w.get("instruction"):
+            if instr_field:
                 block_elements.append(Spacer(1, 0.1*cm))
                 block_elements.append(Paragraph(
-                    "Zalecenia — co robić:",
+                    L["instruction"],
                     ParagraphStyle('sl3', fontSize=8, fontName=_FONT_BOLD,
                                    textColor=colors.HexColor("#475569"))))
-                for line in w["instruction"].split("\n"):
+                for line in instr_field.split("\n"):
                     if line.strip():
                         block_elements.append(Paragraph(
                             line.strip(), style_body))
@@ -415,14 +471,24 @@ def generate_warning_pdf(
     story.append(HRFlowable(width="100%", thickness=0.5,
                             color=colors.HexColor("#e2e8f0")))
     story.append(Spacer(1, 0.2*cm))
-    story.append(Paragraph(
-        f"Dokument wygenerowany automatycznie przez MeteoCAP Editor · "
-        f"IMGW-PIB Centrum Modelowania Meteorologicznego · {now_str}",
-        style_footer))
-    story.append(Paragraph(
-        "Ostrzeżenia meteorologiczne są wydawane zgodnie z kryteriami IMGW-PIB "
-        "i standardem CAP 1.2 (Common Alerting Protocol).",
-        style_footer))
+    if EN:
+        story.append(Paragraph(
+            f"Document automatically generated by MeteoCAP Editor · "
+            f"IMGW-PIB Meteorological Modelling Centre · {now_str}",
+            style_footer))
+        story.append(Paragraph(
+            "Meteorological warnings are issued in accordance with IMGW-PIB criteria "
+            "and the CAP 1.2 standard (Common Alerting Protocol).",
+            style_footer))
+    else:
+        story.append(Paragraph(
+            f"Dokument wygenerowany automatycznie przez MeteoCAP Editor · "
+            f"IMGW-PIB Centrum Modelowania Meteorologicznego · {now_str}",
+            style_footer))
+        story.append(Paragraph(
+            "Ostrzeżenia meteorologiczne są wydawane zgodnie z kryteriami IMGW-PIB "
+            "i standardem CAP 1.2 (Common Alerting Protocol).",
+            style_footer))
 
     doc.build(story)
     buf.seek(0)

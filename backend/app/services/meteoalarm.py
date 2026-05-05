@@ -40,7 +40,7 @@ METEOALARM_FEEDS = {
     "CZ": {
         "name": "Czechy (CHMI)",
         "flag": "🇨🇿",
-        "url": "https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-czech-republic",
+        "url": "https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-czechia",
     },
     "SK": {
         "name": "Słowacja (SHMU)",
@@ -53,14 +53,27 @@ METEOALARM_FEEDS = {
         "url": "https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-ukraine",
     },
     "LT": {
-        "name": "Litwa (LHMT)",
+        "name": "Litwa (LHMS)",
         "flag": "🇱🇹",
         "url": "https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-lithuania",
     },
+    # Poniższe feedy nie są częścią MeteoAlarm/EUMETNET.
+    # Dane z serwisów rosyjskich i białoruskich — traktujemy poglądowo,
+    # bez gwarancji kompletności i aktualności. Wyświetlane z oznaczeniem ⚠.
+    "RU_KGD": {
+        "name": "Rosja — obw. kaliningradzki (Roshydromet)",
+        "flag": "🇷🇺",
+        "url": "https://meteoinfo.ru/hmc-output/cap/cap-feed/en/atom.xml",
+        "area_filter": ["Kaliningrad"],
+        "political_caution": True,   # oznacz w UI jako dane nieweryfikowane
+        "feed_format": "summary_text",  # parser z summary zamiast CAP embedded
+    },
     "BY": {
-        "name": "Białoruś",
+        "name": "Białoruś (Belgidromet / Roshydromet)",
         "flag": "🇧🇾",
-        "url": "https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-belarus",
+        "url": "https://meteoalert.meteoinfo.ru/belarus/cap-feed/en/atom.xml",
+        "political_caution": True,
+        "feed_format": "summary_text",
     },
 }
 
@@ -112,6 +125,11 @@ def _parse_atom_feed(xml_bytes: bytes, country_code: str) -> list:
     warnings = []
     country_info = METEOALARM_FEEDS.get(country_code, {})
 
+    # Feedy BY i RU mają format summary_text (nie embedded CAP)
+    # Format summary: "Affected areas: Region\nPhenomenon (level X of 3)"
+    if country_info.get("feed_format") == "summary_text":
+        return _parse_summary_text_feed(root, ns, country_code, country_info)
+
     # Sprawdź czy to Atom feed czy bezpośredni CAP
     entries = root.findall('atom:entry', ns) or root.findall('entry')
     if not entries:
@@ -127,6 +145,78 @@ def _parse_atom_feed(xml_bytes: bytes, country_code: str) -> list:
             continue
 
     return warnings
+
+
+def _parse_summary_text_feed(root, ns: dict, country_code: str, country_info: dict) -> list:
+    """
+    Parser dla feedów BY/RU — wyciąga dane z summary text zamiast embedded CAP.
+    Format summary: "Affected areas: Region Name\\nPhenomenon (level X of 3)"
+    Zwraca markery bez geometrii (obszar = tekst).
+    """
+    import re as _re
+
+    entries = root.findall('atom:entry', ns) or root.findall('entry')
+    results = []
+
+    PHENOMENON_EN_MAP = {
+        "thunderstorms": "burze", "wind": "silny_wiatr", "rain": "intensywne_opady_deszczu",
+        "high temperature": "upal", "heat": "upal", "snow": "intensywne_opady_sniegu",
+        "ice": "oblodzenie", "freezing rain": "opady_marzniece", "fog": "gesta_mgla",
+        "flood": "intensywne_opady_deszczu", "blizzard": "zawieje_zamiecie",
+        "frost": "przymrozki", "cold": "silny_mroz",
+    }
+
+    for entry in entries:
+        def ft(tag):
+            el = entry.find(f'atom:{tag}', ns) or entry.find(tag)
+            return el.text.strip() if el is not None and el.text else ""
+
+        title = ft('title')
+        summary = ft('summary')
+        entry_id = ft('id')
+        updated = ft('updated')
+
+        # Pomiń Cancel
+        if title.lower() == 'cancel' or 'cancel reference' in summary.lower():
+            continue
+
+        # Parsuj summary: "Affected areas: Brest Region\nThunderstorms (level 2 of 3)"
+        area_desc = ""
+        phenomenon_en = title.lower()
+        level = 1
+
+        if summary:
+            area_match = _re.search(r'(?:Affected areas?:\s*)(.+?)(?:\n|$)', summary, _re.IGNORECASE)
+            if area_match:
+                area_desc = area_match.group(1).strip()
+            level_match = _re.search(r'level\s+(\d)', summary, _re.IGNORECASE)
+            if level_match:
+                level = int(level_match.group(1))
+
+        if not area_desc:
+            area_desc = title
+
+        phenomenon = PHENOMENON_EN_MAP.get(phenomenon_en, "silny_wiatr")
+
+        results.append({
+            "id":                 entry_id or f"{country_code}_{updated}_{area_desc}",
+            "country":            country_code,
+            "country_name":       country_info.get("name", country_code),
+            "country_flag":       country_info.get("flag", ""),
+            "phenomenon":         phenomenon,
+            "headline":           f"{title} — {area_desc}",
+            "area_desc":          area_desc,
+            "onset":              updated,
+            "expires":            "",
+            "level":              level,
+            "status":             "active",
+            "polygon":            None,
+            "geocode_geometries": [],
+            "political_caution":  country_info.get("political_caution", False),
+            "source_note":        f"Dane: {country_info.get('name', country_code)} (poza MeteoAlarm/EUMETNET)",
+        })
+
+    return results
 
 
 def _parse_entry(entry, ns: dict, country_code: str, country_info: dict) -> Optional[dict]:
@@ -296,6 +386,14 @@ def fetch_country_warnings(country_code: str, timeout: int = 8) -> list:
             xml_bytes = resp.read()
 
         warnings = _parse_atom_feed(xml_bytes, country_code)
+
+        # Filtruj po area_filter jeśli zdefiniowany (np. Rosja → tylko Kaliningrad)
+        area_filter = feed_info.get("area_filter")
+        if area_filter:
+            warnings = [
+                w for w in warnings
+                if any(f.lower() in (w.get("area_desc") or "").lower() for f in area_filter)
+            ]
 
         with _cache_lock:
             _cache[country_code] = {'data': warnings, 'ts': time.time()}
