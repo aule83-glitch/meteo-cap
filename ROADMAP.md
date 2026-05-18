@@ -252,3 +252,241 @@ Konsekwencje:
 2. **Flat-file JSON** — brak concurrent editing. Rozwiązanie: PostgreSQL (v3.0)
 3. **Brak auth per-user** — tylko opcjonalny API key. Rozwiązanie: LDAP/AD (v3.2)
 4. **Brak prawdziwego dissolve** — obrys obszaru ostrzeżenia tylko poprzez kolorowanie poligonów (v2.1 nie ma już convex hull, który dawał błędne efekty)
+
+---
+
+## ✨ v2.4.4 (2026-05-10) — IMGW-OSMET, MeteoAlarm UX
+
+### Zmiany
+
+**Rebranding**
+- Nazwa aplikacji: MeteoCAP Editor → **IMGW-OSMET** (robocza)
+- Logo IMGW-PIB w headerze (SVG `imgw_logo_pl.svg`) i w raportach PDF (PNG, PL/EN)
+
+**MeteoAlarm — severity fix**
+- `Moderate` → stopień 1 (żółty) — poprzednio błędnie 2
+- `awareness_level` "2; yellow" → 1, "3; orange" → 2, "4; red" → 3
+- Formuła: `level = clamp(1, awareness_level_num - 1, 3)`
+
+**MeteoAlarm — UX markerów**
+- Markery jako znaki wodne: opacity 0.45–0.6 (było: pełne etykiety 100%)
+- Hover rozsuwa label z emoji + flagą + nazwą zjawiska + stopniem
+- Zoom aggregation: zoom ≤5 → 1 marker per kraj (najwyższy stopień), ≥7 → pełna geometria
+- Renderowanie reaguje na `zoomend` (useCallback + osobny effect)
+
+**Tooltip powiatów**
+- Opóźnienie 700ms przed pojawieniem się hintu (mouseover → setTimeout)
+- mouseout natychmiast czyści timer i zamyka tooltip
+- Rozwiązuje problem "zawieszających się" hintów przy szybkim przejeżdżaniu kursorem
+
+### Pending
+
+- [ ] Weryfikacja DE (>100 entries, grouping po identifier)
+- [ ] UA — weryfikacja poligonów w produkcji (feed live)
+- [ ] Clustering markerów MA na zoom 6-7 (Leaflet.markercluster)
+- [ ] Ustawienia językowe (PL/EN toggle w headerze wpływający na PDF)
+
+---
+
+## ✨ v2.5.0-b1 (2026-05-10) — Optymalizacja + spatial clustering
+
+### Zmiany
+
+**Schemat wersjonowania**
+- Nowy format: `MAJOR.MINOR.PATCH[-bBUILD]`, opis w VERSIONING.md
+- Plik `VERSION` w root projektu
+- Wersja w UI (header), `/api/` response i nazwie ZIP
+
+**Optymalizacja rozmiaru (ZIP: 16MB → ~6MB)**
+- `meteoalarm_geocodes_pl.json`: 33MB → 2.3MB
+  - Usunięto 890 wpisów nieużywanych krajów (ES, AT, FR, FI, IE i in.)
+  - Uproszczono geometrie algorytmem RDP (ε=0.002): 597k → 63k punktów (−89%)
+- `counties.json`: 4.6MB → 2.2MB (RDP ε=0.001, mniej agresywny dla PL)
+- `geocodes_CZ/LT/PL/DE.geojson`: łącznie ok. 400KB mniej
+- `imgw_logo_pl/en.png`: 700KB → 85KB każde (resize 300px + optymalizacja PIL)
+- Usunięto `BRIEFING_NOWA_SESJA.py` i `MODEL_SELECTION.md` z builda
+
+**MeteoAlarm — spatial clustering**
+- Zastąpienie agregacji per-kraj klasteringiem geometrycznym (pixel-distance)
+- Hamburg-przymrozek i Monachium-upał = 2 osobne markery we właściwych miejscach
+- Klaster (gdy markery <40px od siebie na zoom≤5): kółko z liczbą, tooltip "N ostrzeżeń"
+- Kontury rysowane zawsze niezależnie od zoom
+
+**Tooltips — globalny div**
+- Powiaty i MeteoAlarm: jeden `<div id="county-global-tt">` w `document.body`
+- Brak Leaflet `bindTooltip` → brak "duchów" zawieszonych tooltipów
+- 600ms delay na pojawienie się hintu powiatów
+
+### Pending / następny sprint
+- [ ] Poprawka zaznaczania powiatów poligonem (centroid vs bbox vs intersection)
+- [ ] Mapka powiatów w PDF (aktywne obszary)
+- [ ] Kompletność kolorowania w podglądzie PNG (StatusView)
+- [ ] Telefon: ngrok/local network URL
+
+---
+
+## 🗒️ Backlog / Todo (niezaplanowane sprinty)
+
+### Edytor — reorganizacja layoutu
+Obecny problem: pola edycji są funkcjonalne ale trzeba dużo scrollować żeby znaleźć sekcje (aktualizacja, import, wysyłka). 
+
+Propozycje do przemyślenia:
+- **Tabs/sekcje** w panelu edytora: "Treść" | "Obszar" | "Wysyłka/Publish" | "Import"
+- Albo **collapsible sections** z zapamiętywaniem stanu (które rozwinięte)
+- Kluczowe akcje (Zapisz, Wyślij CAP, PDF) zawsze widoczne — sticky toolbar na górze/dole panelu
+- Na wąskim ekranie (telefon) panel edytora jako drawer/modal zamiast sidebara
+
+### Zaznaczanie obszarów po wysokości npm (NMT)
+Nowa funkcjonalność wymagająca danych:
+- **Brak NMT** — trzeba pozyskać dane wysokościowe (np. SRTM 90m lub EU-DEM 25m, oba darmowe)
+- Pomysł: użytkownik podaje próg wysokości (np. "powyżej 500m npm") → system generuje kontur z NMT → automatycznie zaznacza powiaty których znacząca część leży powyżej progu
+- Alternatywa lżejsza: prekalkulowane kontury dla kilku progów (200/300/500/800/1000m) zapisane jako GeoJSON — bez NMT w runtime
+- Backend: endpoint `/api/spatial/counties-above-elevation?threshold=500`
+- Do ustalenia: źródło danych NMT, rozdzielczość, format (GeoTIFF → contouring w scipy/rasterio)
+
+**Zależności:** dane NMT, biblioteka do konturowania (rasterio lub GDAL), ewentualnie pre-processing offline
+
+---
+
+## 🔭 Wizja długoterminowa — system trójwarstwowy
+
+### Trzy warstwy ostrzeżeń
+
+```
+WARSTWA 1 — Early Warning (EW)
+  Wyprzedzenie: 48h+ (do 5 dni)
+  Cel: planowanie, dysponowanie siłami i środkami
+  Odbiorcy: służby zarządzania kryzysowego, energetyka, transport
+  Charakter: probabilistyczny, szeroki obszar, niższa pewność
+
+WARSTWA 2 — Warning właściwy (W)  ← obecny system
+  Wyprzedzenie: 0–48h
+  Cel: gotowość i reakcja
+  Odbiorcy: wszystkie służby + społeczeństwo
+  Charakter: deterministyczny, CAP 1.2, obecny workflow
+
+WARSTWA 3 — Nowcast (NC)
+  Wyprzedzenie: 0–3h, aktualizacja co ~15min
+  Cel: natychmiastowa reakcja operacyjna
+  Odbiorcy: pogotowie, straż, operacyjni dyspozytorzy
+  Charakter: zagnieżdżony w W, auto-update z zatwierdzeniem człowieka
+```
+
+### Impact-based / Impact-oriented warnings
+- Zamiast "wiatr 25 m/s" → "ryzyko uszkodzeń dachów w zabudowie z lat 70."
+- Wymaga warstw GIS:
+  - Ukształtowanie terenu (NMT — patrz wyżej)
+  - Infrastruktura krytyczna i wrażliwa
+  - Specjalne regiony (góry, jeziora, parki narodowe)
+  - Stan zdrowia drzew (ryzyko wywrotów)
+  - Specjalne okresy ekspozycji (pielgrzymki, obozy, imprezy masowe)
+- Źródła: GUGiK, BDOT10k, dane IMGW, dane zewnętrzne przez API/WFS
+
+### Nowcasting — człowiek w pętli
+- Input: zewnętrzne modele nowcastingowe (np. INCA, DWD-STEPS, Rad-EXTRAKT)
+- Pipeline: model → auto-walidacja spójności z aktywnym W → propozycja aktualizacji
+- Jeśli spójne z ostrzeżeniem → auto-zatwierdzone
+- Jeśli rozbieżne → do ręcznego zatwierdzenia przez dyżurnego
+- UI: panel "Nowcast queue" z diff względem aktywnego ostrzeżenia
+
+### Zależności techniczne (do zaprojektowania)
+- Rozszerzenie schematu CAP lub osobny format dla EW i NC
+- WebSocket lub SSE dla live-update NC w UI
+- Scheduler (np. APScheduler już w backendzie?) dla auto-fetch modeli
+- Model danych: relacja EW → W → NC (drzewo, nie płaska lista)
+
+---
+
+## v2.5.1 (2026-05-10)
+
+- Label PL ostrzeżeń: orientacja pozioma (ikona + tekst + czas w jednej linii)
+- Markery MA: pill-shape zamiast kółka, skrót tekstowy (WTR/BRZ/SNI...) zamiast emoji — czytelne na każdym tle i rozmiarze
+- Hover MA: border-radius pill zamiast circle
+- Tooltip MA i powiatów: word-wrap, max-width — brak rozciągania w kosmos
+- StatusView: sekcja MeteoAlarm (kraje ościenne) gdy MA włączone — ostrzeżenia per kraj z treścią
+- MA state przeniesiony do App.js — jeden fetch dla mapy i statusu
+- Wersja 2.5.1 (poprawne inkrementowanie od teraz)
+
+---
+
+## v2.5.2 (2026-05-10)
+- MA klaster: emoji/skrót zjawiska w pill zamiast liczby; liczba depesz → tylko tooltip
+- MA lizaki: dodge — markery nakładające się przesuwane o ~15km od siebie
+- Label PL: fix pionowego layoutu — `className='ma-warn-label'` + CSS `flex-direction:row !important`
+- Label PL: `iconAnchor` skorygowany żeby label był wyśrodkowany względem centroidu
+
+---
+
+## v2.5.3 (2026-05-10)
+- StatusView: mapa przywrócona — MA section jako `max-height:220px` panel na dole z `overflow-y:auto`
+- MA skróty: WIATR, BURZE, ŚNIEG, DESZCZ, MRÓZ, UPAŁ, MGŁA, GRAD zamiast kodów WTR/BRZ/SNI
+- Pill font zmniejszony do 8px żeby dłuższe słowa się mieściły
+
+---
+
+## v2.5.4 (2026-05-10)
+- Import IMGW: deduplication po imgw_id — ponowny klik nie tworzy duplikatów
+- Import IMGW: preview oznacza już istniejące ostrzeżenia (greyed-out, "✓ już w bazie")
+- Import IMGW: przycisk "Importuj nowe (N)" zamiast "Importuj wszystkie" — pomija istniejące
+- Import IMGW: gdy wszystko już zaimportowane → przycisk disabled "Wszystkie już zaimportowane"
+- Backend: /import/imgw zwraca `already_exists` i `new_count` per ostrzeżenie
+
+---
+
+## v2.5.5 (2026-05-10)
+- MA markery: powrót do kółka z emoji (nie pill z tekstem), rozmiar 22-24px
+- MA hover: kółko→półkole + rozwinięcie labela z count w nawiasie jeśli klaster
+- Dodge iteracyjny: 5 przejść, symetryczne rozsunięcie po kącie (Math.cos/sin), większy efekt
+- Usunięto orphaned block z poprzedniej refaktoryzacji (duplikat makeMarker)
+- PL label: font 12px, emoji 18px, iconAnchor [0,18] — widoczny i wycentrowany
+
+---
+
+## v2.5.6 (2026-05-10)
+- Spatial join przepisany: intersection + 10% area coverage zamiast tylko centroidu
+  - Sutherland-Hodgman polygon clipping (czysty Python, bez shapely)
+  - Shoelace formula dla powierzchni
+  - 3 kryteria: centroid powiatu w poligonie LUB ≥10% powiatu nakryte LUB centroid poligonu w powiecie
+  - Naprawia: zaznaczanie poligonem, dziury w PNG StatusView, brakujące powiaty w danych ostrzeżeń
+- PDF: statyczna mapka per ostrzeżenie (7.5×5.5 cm)
+  - Wszystkie powiaty PL w jasnoszarym tle, objęte w kolorze poziomu ostrzeżenia
+  - Bez podkładu OSM — czysta wektorowa grafika w ReportLab Drawing
+  - Korekta merkatorska (lat_correction = cos(lat))
+
+---
+
+## v2.5.7 (2026-05-10)
+
+### Spatial join — naprawa orientacji clip
+- Sutherland-Hodgman wymaga CCW; Leaflet Draw rysuje CW
+- Auto-detekcja orientacji przez signed area + reverse jeśli CW
+- Test ad-hoc: dla Wielkopolski stary 18 powiatów → nowy 26 (graniczne złapane: Ostrowski, Rawicki, Gnieźnieński, Turecki, Wschowski itd.)
+- Próg pokrycia 10% → 5% (Wolsztyński z 9.4% wcześniej pomijany)
+
+### PNG StatusView — przepisany na metryczkę social-media (B+B1)
+- Endpoint `/api/export/png` w backend (svglib + reportlab.renderPM)
+- Layout 1200×1000: header (tytuł, data, liczba), mapa 700px, footer z syntezą
+- Synteza per zjawisko: "burze · stopień 2 · 14 powiatów · woj. małopolskie, podkarpackie"
+- Heurystyka: ≤3 województw → wymień nazwy małymi literami; więcej → tylko liczba
+- Cluster-based labelki (jeden per zwarty obszar, max 70px odstęp)
+- Dodge: jeśli klastry nadal blisko siebie, rozsuwa się je iteracyjnie (3 przejścia)
+
+### PDF — refaktoryzacja czytelności
+- Mapka wycentrowana, większa (8.5×6.5 cm), bez tekstu obok (duplikacja usunięta)
+- "Powiaty objęte" zamiast "Obszar ostrzeżenia" (różny od `area_desc` w detail_table)
+- Wykrywanie całych województw — `_area_summary` porównuje liczbę powiatów z totalami
+- "całe woj. dolnośląskie" zamiast wymieniania 27 powiatów (radykalna redukcja długości)
+- "Całe województwa" jako jedna linia zbiorcza dla wielu w pełni objętych
+- Nazwy województw/powiatów małymi literami (zgodne z polskimi zasadami pisowni)
+
+---
+
+## v2.5.8 (2026-05-17)
+- PDF: usunięto podwójną mapkę (duplikat `block_elements.append(_map_row)`)
+- PDF: mapka wycentrowana, większa (8.5×6.5 cm)
+- PDF: "całe województwa:" jedna linia zbiorcza, powiaty wymieniane tylko dla niekompletnych
+- PDF: małe litery w nazwach województw/powiatów
+- Docker: port frontendu zmieniony 3000 → 3001 (konflikt z geodata-viz)
+- Nowy endpoint `/api/export/cap-xml` — zbiorczy ZIP ze wszystkimi aktywnymi CAP XML
+  - Ostrzeżenia z IMGW API bez XML → generowane on-the-fly
+  - Przycisk "📦 Eksportuj wszystkie CAP XML" w edytorze

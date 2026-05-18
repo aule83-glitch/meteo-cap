@@ -141,7 +141,7 @@ WARNINGS_DB = load_warnings()
 
 @app.get("/")
 def root():
-    return {"status": "ok", "service": "MeteoCAP Editor API v1.2"}
+    return {"status": "ok", "app": "IMGW-OSMET", "version": "2.5.8"}
 
 
 @app.get("/api/voivodeships")
@@ -161,24 +161,169 @@ def get_counties_geojson():
 
 @app.post("/api/spatial/counties-in-polygon")
 def counties_in_polygon(req: SpatialQueryRequest):
+    """
+    Zwraca powiaty których obszar przecina się z poligonem zadanym przez użytkownika.
+    
+    Kryterium kwalifikacji:
+      - centroid powiatu jest wewnątrz poligonu (szybki test), LUB
+      - poligon użytkownika nakrywa ≥5% powierzchni powiatu, LUB
+      - powiat zawiera centroid poligonu (mały poligon wewnątrz powiatu)
+    
+    Algorytm: Sutherland-Hodgman polygon clipping + shoelace area.
+    Czysta arytmetyka, bez zewnętrznych bibliotek (shapely).
+    """
     if len(req.polygon) < 3:
         raise HTTPException(400, "Polygon must have at least 3 points")
-    result = [c for c in COUNTIES_DATA
-              if point_in_polygon(c["lat"], c["lon"], req.polygon)]
+
+    user_poly = [(p[1], p[0]) for p in req.polygon]   # (lon, lat)
+    user_poly_lat = [p[0] for p in req.polygon]        # do centroidu poligonu
+    user_poly_lon = [p[1] for p in req.polygon]
+    user_centroid = (sum(user_poly_lon)/len(user_poly_lon), sum(user_poly_lat)/len(user_poly_lat))
+    user_bbox = _bbox(user_poly)
+
+    result = []
+    for c in COUNTIES_DATA:
+        # Szybki test 1: centroid powiatu w poligonie
+        if _point_in_poly(c["lon"], c["lat"], user_poly):
+            result.append(c)
+            continue
+
+        # Pobierz geometrię powiatu z GeoJSON
+        county_feat = next(
+            (f for f in COUNTIES_GEOJSON["features"] if f["properties"]["id"] == c["id"]),
+            None
+        )
+        if not county_feat:
+            continue
+        county_rings = _extract_rings(county_feat["geometry"])
+        if not county_rings:
+            continue
+
+        # Szybki test 2: bbox-overlap. Bez nakładania bboxów nie ma intersection.
+        county_outer = county_rings[0]
+        cbb = _bbox(county_outer)
+        if not _bbox_overlap(user_bbox, cbb):
+            continue
+
+        # Szybki test 3: centroid poligonu wewnątrz powiatu (mały user-poly w dużym powiecie)
+        if _point_in_poly(user_centroid[0], user_centroid[1], county_outer):
+            result.append(c)
+            continue
+
+        # Test 4: liczymy faktyczne pokrycie poprzez clip + area
+        county_area = _polygon_area(county_outer)
+        if county_area <= 0:
+            continue
+        clipped = _sutherland_hodgman(county_outer, user_poly)
+        if len(clipped) < 3:
+            continue
+        clip_area = _polygon_area(clipped)
+        coverage = clip_area / county_area
+        if coverage >= 0.05:   # ≥5% powierzchni powiatu objęte poligonem
+            result.append(c)
+
     return {"counties": result, "count": len(result)}
 
 
-def point_in_polygon(lat, lon, polygon):
-    n, inside, j = len(polygon), False, len(polygon) - 1
-    px, py = lon, lat
+def _point_in_poly(x, y, poly):
+    """Standard ray-casting point-in-polygon test. poly = lista (lon,lat)."""
+    n, inside, j = len(poly), False, len(poly) - 1
     for i in range(n):
-        xi, yi = polygon[i][1], polygon[i][0]
-        xj, yj = polygon[j][1], polygon[j][0]
-        if ((yi > py) != (yj > py)) and \
-           (px < (xj - xi) * (py - yi) / (yj - yi) + xi):
+        xi, yi = poly[i]
+        xj, yj = poly[j]
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
             inside = not inside
         j = i
     return inside
+
+
+def _bbox(poly):
+    xs = [p[0] for p in poly]
+    ys = [p[1] for p in poly]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _bbox_overlap(a, b):
+    return not (a[2] < b[0] or a[0] > b[2] or a[3] < b[1] or a[1] > b[3])
+
+
+def _extract_rings(geometry):
+    """Zwraca listę pierścieni (outer + holes) jako [(lon,lat), ...].
+    Dla MultiPolygon: tylko outer pierwszej polygonki — wystarczające dla powiatów PL."""
+    t = geometry.get("type")
+    if t == "Polygon":
+        return [[(c[0], c[1]) for c in ring] for ring in geometry["coordinates"]]
+    if t == "MultiPolygon":
+        # Powiaty z wyspami/enklawami — bierzemy największy outer
+        polys = geometry["coordinates"]
+        best = max(polys, key=lambda p: len(p[0]))
+        return [[(c[0], c[1]) for c in ring] for ring in best]
+    return []
+
+
+def _signed_area(poly):
+    """Shoelace ze znakiem. >0 = CCW, <0 = CW. Konieczne dla Sutherland-Hodgman."""
+    n = len(poly)
+    if n < 3: return 0
+    s = 0
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        s += (x2 - x1) * (y2 + y1)
+    return -s / 2  # ujemny shoelace → CCW dodatnie
+
+
+def _polygon_area(poly):
+    """Shoelace — pole poligonu (znak nieujemny). Jednostka: stopnie²,
+    nie km², ale wystarczy bo porównujemy stosunkowo."""
+    return abs(_signed_area(poly))
+
+
+def _sutherland_hodgman(subject, clip):
+    """Przycinanie poligonu subject przez poligon clip (musi być wypukły).
+    KRYTYCZNE: clip musi być counter-clockwise — automatycznie odwracamy gdy CW."""
+    # Sprawdź orientację clip i odwróć jeśli CW
+    if _signed_area(clip) < 0:
+        clip = list(reversed(clip))
+
+    def inside(p, edge_start, edge_end):
+        return (edge_end[0] - edge_start[0]) * (p[1] - edge_start[1]) \
+             - (edge_end[1] - edge_start[1]) * (p[0] - edge_start[0]) >= 0
+
+    def intersect(p1, p2, edge_start, edge_end):
+        x1, y1 = p1; x2, y2 = p2
+        x3, y3 = edge_start; x4, y4 = edge_end
+        denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+        if abs(denom) < 1e-12:
+            return p1
+        t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
+        return (x1 + t * (x2 - x1), y1 + t * (y2 - y1))
+
+    output = list(subject)
+    n = len(clip)
+    for i in range(n):
+        if not output:
+            break
+        input_list = output
+        output = []
+        edge_start = clip[i]
+        edge_end = clip[(i + 1) % n]
+        prev = input_list[-1]
+        for curr in input_list:
+            if inside(curr, edge_start, edge_end):
+                if not inside(prev, edge_start, edge_end):
+                    output.append(intersect(prev, curr, edge_start, edge_end))
+                output.append(curr)
+            elif inside(prev, edge_start, edge_end):
+                output.append(intersect(prev, curr, edge_start, edge_end))
+            prev = curr
+    return output
+
+
+def point_in_polygon(lat, lon, polygon):
+    """Wstecznie zgodna funkcja — przyjmuje (lat,lon) i poligon w formacie [[lat,lon],...]"""
+    poly = [(p[1], p[0]) for p in polygon]
+    return _point_in_poly(lon, lat, poly)
 
 
 @app.post("/api/warnings/check-level", response_model=LevelCheckResponse)
@@ -188,7 +333,12 @@ def check_warning_level(req: LevelCheckRequest):
 
 
 @app.post("/api/warnings", response_model=WarningDB)
-def create_warning(warning: WarningCreate):
+def create_warning(warning: WarningCreate, publish: bool = False):
+    """
+    Utwórz ostrzeżenie. 
+    publish=False (default): zapis draft w edytorze, bez CAP/PDF/webhooks
+    publish=True: pełna publikacja (CAP, PDF, dispatch, webhook)
+    """
     wid   = str(uuid.uuid4())
     level = determine_warning_level(warning.phenomenon, warning.params)
     w     = warning.model_dump()
@@ -244,11 +394,14 @@ def create_warning(warning: WarningCreate):
     except Exception:
         w["cap_xml"] = None
 
+    # Draft vs Published
+    w["is_published"] = publish
+
     WARNINGS_DB[wid] = w
     save_warnings()
 
-    # Wyślij do webhooków + FTP + email asynchronicznie
-    if w.get("cap_xml") and w.get("msg_type") != "Cancel":
+    # Publikacja CAP/PDF/dispatch — TYLKO jeśli publish=True
+    if publish and w.get("cap_xml") and w.get("msg_type") != "Cancel":
         dispatch_webhooks_async(w["cap_xml"], wid, warning_level=level)
         # Generuj nazwę pliku
         _ph  = w.get("phenomenon", "ostrzezenie")
@@ -961,13 +1114,17 @@ def get_update_template(phenomenon: str, operation: str, params: str = "{}", con
 
 
 @app.put("/api/warnings/{warning_id}")
-def update_warning_inplace(warning_id: str, warning: WarningCreate):
+def update_warning_inplace(warning_id: str, warning: WarningCreate, publish: bool = False):
     """
     Aktualizuj istniejące ostrzeżenie w miejscu (msgType=Update).
 
     Stary rekord jest zachowany w historii z polem 'superseded_by'.
     Nowy rekord zastępuje stary z nowym ID, references_id wskazuje na oryginał.
-    Zwraca nowe ostrzeżenie z zachowaną ciągłością (nowe ID, CAP msgType=Update).
+
+    Jeśli nowe ostrzeżenie ma MNIEJ powiatów niż oryginał, brakujące powiaty
+    zachowują ostrzeżenie z oryginalnymi parametrami (osobny rekord-reszta w drzewie).
+    To zapobiega sytuacji, w której zmniejszenie obszaru (np. eskalacja na części)
+    odwołuje ostrzeżenie na niezmienionej reszcie powiatów.
     """
     orig = WARNINGS_DB.get(warning_id)
     if not orig:
@@ -986,21 +1143,66 @@ def update_warning_inplace(warning_id: str, warning: WarningCreate):
     new_w["references_id"] = warning_id
     new_w["status"]       = _compute_status(new_w)
 
+    # Dziedzicz pola drzewa z oryginału
+    group_id = orig.get("warning_group_id") or orig["id"]
+    new_w["warning_group_id"] = group_id
+    new_w["parent_id"]        = warning_id
+    new_w["version"]          = orig.get("version", 1) + 1
+
     try:
         new_w["cap_xml"] = generate_cap_xml(new_w)
     except Exception:
         new_w["cap_xml"] = None
 
+    # --- Wykryj brakujące powiaty (zmniejszenie obszaru) ---
+    orig_county_ids = {str(c.get("id")) for c in (orig.get("counties") or [])}
+    new_county_ids  = {str(c.get("id")) for c in (new_w.get("counties") or [])}
+    removed_ids     = orig_county_ids - new_county_ids
+
+    remainder_id = None
+    if removed_ids:
+        # Powiaty które synoptyk odznaczył — zachowaj je z ORYGINALNYMI parametrami
+        remainder_counties = [c for c in (orig.get("counties") or [])
+                              if str(c.get("id")) in removed_ids]
+        remainder_id = str(uuid.uuid4())
+        remainder = {**orig}
+        remainder["id"]               = remainder_id
+        remainder["counties"]         = remainder_counties
+        remainder["created_at"]       = datetime.utcnow().isoformat()
+        remainder["msg_type"]         = "Update"
+        remainder["operation_hint"]   = "area_reduction_remainder"
+        remainder["references_id"]    = warning_id
+        remainder["parent_id"]        = warning_id
+        remainder["warning_group_id"] = group_id
+        remainder["version"]          = orig.get("version", 1) + 1
+        remainder["is_active_leaf"]   = True
+        remainder["is_cancelled"]     = False
+        remainder["is_updated"]       = False
+        remainder["superseded_by"]    = None
+        remainder["status"]           = _compute_status(remainder)
+        try:    remainder["cap_xml"] = generate_cap_xml(remainder)
+        except: remainder["cap_xml"] = None
+
+        WARNINGS_DB[remainder_id] = remainder
+
     # Oznacz oryginał jako zastąpiony (zachowany w historii, nie wyświetlany)
     orig["is_updated"]    = True
-    orig["superseded_by"] = new_id
+    orig["is_active_leaf"] = False
+    orig["superseded_by"] = new_id   # wskazuje na główny nowy (nie remainder)
     orig["status"]        = "updated"
+
+    # Nowy rekord z zaktualizowanymi powiatami
+    new_w["is_active_leaf"] = True
+    new_w["is_cancelled"]   = False
+    new_w["is_updated"]     = False
+    new_w["superseded_by"]  = None
+    new_w["is_published"]   = publish
 
     WARNINGS_DB[new_id] = new_w
     save_warnings()
 
-    # Dystrybucja
-    if new_w.get("cap_xml"):
+    # Dystrybucja — TYLKO jeśli publish=True
+    if publish and new_w.get("cap_xml"):
         dispatch_webhooks_async(new_w["cap_xml"], new_id, warning_level=new_level)
         _ph   = new_w.get("phenomenon", "ostrzezenie")
         _lvl  = new_w.get("level", 1)
@@ -1056,6 +1258,58 @@ def get_phenomena():
             for pid, label in PHENOMENON_LABELS.items()
         ]
     }
+
+
+@app.get("/api/export/cap-xml")
+def export_cap_xml(
+    status_filter: str = Query("active,pending",
+        description="Statusy do uwzględnienia (csv): active,pending,expired")
+):
+    """Zbiorczy eksport CAP XML — ZIP ze wszystkimi ostrzeżeniami wg filtru statusu.
+    Każde ostrzeżenie generuje osobny plik XML. Ostrzeżenia zaimportowane z IMGW API
+    które nie mają wygenerowanego XML — generują go on-the-fly."""
+    allowed = set(status_filter.split(","))
+    warnings = [w for w in WARNINGS_DB.values()
+                if _compute_status(w) in allowed]
+
+    if not warnings:
+        raise HTTPException(404, "Brak ostrzeżeń do eksportu")
+
+    buf = io.BytesIO()
+    count = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for w in warnings:
+            w["status"] = _compute_status(w)
+            # Generuj XML jeśli brakuje (np. import z IMGW API)
+            cap_xml = w.get("cap_xml")
+            if not cap_xml:
+                try:
+                    cap_xml = generate_cap_xml(w)
+                    w["cap_xml"] = cap_xml  # cache
+                except Exception:
+                    continue
+            if not cap_xml:
+                continue
+
+            ph = w.get("phenomenon", "warning")
+            lvl = w.get("level", 1)
+            uid = w.get("id", "unknown")[:8]
+            fname = f"ostrzezenie_{ph}_st{lvl}_{uid}.xml"
+            zf.writestr(fname, cap_xml)
+            count += 1
+
+    if count > 0:
+        save_warnings()  # persist cached cap_xml
+    buf.seek(0)
+    now_str = datetime.now().strftime("%Y%m%d_%H%M")
+    return Response(
+        content=buf.read(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="imgw-osmet_cap_{now_str}_{count}szt.zip"',
+            "X-Warnings-Count": str(count),
+        }
+    )
 
 
 # ---- Phenomena config (icons, impacts, instructions) ----
@@ -1224,9 +1478,17 @@ def import_from_imgw():
             "msg_type":    "Alert",
         })
 
+    # Oznacz które już istnieją w bazie (by frontend mógł je greyed-out pokazać)
+    existing_imgw_ids = {w.get("imgw_id") for w in WARNINGS_DB.values() if w.get("imgw_id")}
+    for w in imported:
+        w["already_exists"] = w["imgw_id"] in existing_imgw_ids
+
+    new_count = sum(1 for w in imported if not w["already_exists"])
+
     return {
         "source":   IMGW_API_URL,
         "count":    len(imported),
+        "new_count": new_count,
         "skipped":  len(skipped),
         "warnings": imported,
         "skipped_details": skipped,
@@ -1238,17 +1500,34 @@ def save_imgw_warnings(body: dict):
     """
     Zapisuje wybrane ostrzeżenia zaimportowane z IMGW do lokalnej bazy.
     Body: { "warnings": [...] }  — lista z /api/import/imgw (pełna lub przefiltrowana).
+    Idempotentne — ponowny import tego samego imgw_id nie tworzy duplikatu.
     """
     warnings_to_save = body.get("warnings", [])
+
+    # Zbuduj indeks istniejących imgw_id → id wewnętrzne
+    existing_imgw_ids = {
+        w.get("imgw_id"): wid
+        for wid, w in WARNINGS_DB.items()
+        if w.get("imgw_id")
+    }
+
     saved = []
+    skipped = 0
     for w in warnings_to_save:
+        imgw_id = w.get("imgw_id")
+
+        # Jeśli już istnieje — pomiń (nie nadpisuj, nie duplikuj)
+        if imgw_id and imgw_id in existing_imgw_ids:
+            skipped += 1
+            continue
+
         wid   = str(uuid.uuid4())
         level = w.get("level") or determine_warning_level(
             w.get("phenomenon", ""), w.get("params", {})
         ) or 1
         new_w = {
             "id":          wid,
-            "imgw_id":     w.get("imgw_id"),
+            "imgw_id":     imgw_id,
             "phenomenon":  w.get("phenomenon"),
             "level":       level,
             "status":      _compute_status({
@@ -1274,14 +1553,16 @@ def save_imgw_warnings(body: dict):
             new_w["cap_xml"] = None
         WARNINGS_DB[wid] = new_w
         saved.append(new_w)
-    save_warnings()
-    return {"saved": len(saved), "warnings": saved}
+
+    if saved:
+        save_warnings()
+    return {"saved": len(saved), "skipped": skipped, "warnings": saved}
 
 
 # ============================================================
 # EKSPORT — SVG / PDF
 # ============================================================
-from app.services.map_exporter import generate_warning_svg
+from app.services.map_exporter import generate_warning_svg, generate_warning_png
 from app.services.pdf_generator import generate_warning_pdf, REPORTLAB_AVAILABLE
 
 
@@ -1302,6 +1583,38 @@ def export_svg(
         content=svg,
         media_type="image/svg+xml",
         headers={"Content-Disposition": 'attachment; filename="meteocap_mapa.svg"'}
+    )
+
+
+@app.get("/api/export/png")
+def export_png(
+    status_filter: str = Query("active,pending",
+        description="Statusy do uwzględnienia (csv): active,pending,expired")
+):
+    """Eksport metryczki ostrzeżeń jako PNG (do social media)."""
+    allowed = set(status_filter.split(","))
+    warnings = [w for w in WARNINGS_DB.values()
+                if _compute_status(w) in allowed]
+    for w in warnings:
+        w["status"] = _compute_status(w)
+
+    png_bytes = generate_warning_png(warnings, width=1200, height=1000)
+    if png_bytes is None:
+        # Fallback: zwracamy SVG ze statusem 200 ale media-type SVG
+        # (frontend może go zrzucić jako SVG zamiast PNG)
+        svg = generate_warning_svg(warnings)
+        return Response(
+            content=svg,
+            media_type="image/svg+xml",
+            headers={"Content-Disposition": 'attachment; filename="meteocap_metryczka.svg"',
+                     "X-Fallback-Format": "svg"}
+        )
+    from datetime import datetime as _dt
+    fname = f"imgw-osmet_{_dt.now().strftime('%Y%m%d_%H%M')}.png"
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'}
     )
 
 

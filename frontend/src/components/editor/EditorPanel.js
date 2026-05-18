@@ -13,7 +13,7 @@ const API = import.meta.env.VITE_API_URL || '/api';
 // Zjawiska kumulacyjne — przy escalate/deescalate pokazujemy pola "zaobserwowano dotychczas" / "prognoza pozostała"
 const CUMULATIVE_PHENOMENA = new Set([
   'intensywne_opady_deszczu', 'intensywne_opady_sniegu', 'opady_sniegu',
-  'silny_deszcz_z_burzami', 'burze',
+  'silny_deszcz_z_burzami',
 ]);
 const PHENOMENON_UNITS = {
   intensywne_opady_deszczu: 'mm',
@@ -97,7 +97,7 @@ function XmlPreviewModal({ xml, onClose }) {
   );
 }
 
-export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningCreated, onStatusChange, warnings = [], onLoadCounties }) {
+export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningCreated, onStatusChange, warnings = [], onLoadCounties, highlightedWarningId }) {
   // Inicjalizacja ze zapisanego draftu (persystencja przy zmianie zakładki)
   const _d = getDraft();
 
@@ -499,13 +499,13 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
           type: 'success',
         });
       } else if (msgType === 'Update' && referencesId) {
-        res = await axios.put(`${API}/warnings/${referencesId}`, buildPayload());
+        res = await axios.put(`${API}/warnings/${referencesId}?publish=false`, buildPayload());
         onWarningCreated(res.data);
-        onStatusChange({ msg: `✅ Aktualizacja St.${res.data.level} — ${phenomenon.replace(/_/g, ' ')} zapisana`, type: 'success' });
+        onStatusChange({ msg: `✅ Aktualizacja St.${res.data.level} — ${phenomenon.replace(/_/g, ' ')} zapisana (draft)`, type: 'success' });
       } else {
-        res = await axios.post(`${API}/warnings`, buildPayload());
+        res = await axios.post(`${API}/warnings?publish=false`, buildPayload());
         onWarningCreated(res.data);
-        onStatusChange({ msg: `Ostrzeżenie stopień ${res.data.level} — ${phenomenon.replace(/_/g, ' ')} zapisane`, type: 'success' });
+        onStatusChange({ msg: `Ostrzeżenie stopień ${res.data.level} — ${phenomenon.replace(/_/g, ' ')} zapisane (draft)`, type: 'success' });
       }
       setExpandDialog(null);
       resetForm();
@@ -651,7 +651,12 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     try {
       const res = await axios.post(`${API}/import/imgw/save`, { warnings: warningsToSave });
       res.data.warnings.forEach(w => onWarningCreated(w));
-      onStatusChange({ msg: `Zaimportowano ${res.data.saved} ostrzeżeń z IMGW`, type: 'success' });
+      const saved   = res.data.saved;
+      const skipped = res.data.skipped || 0;
+      const msg = skipped > 0
+        ? `Zaimportowano ${saved} ostrzeżeń z IMGW (${skipped} pominięto — już istnieją)`
+        : `Zaimportowano ${saved} ostrzeżeń z IMGW`;
+      onStatusChange({ msg, type: saved > 0 ? 'success' : 'info' });
       setImgwPreview(null);
     } catch(e) {
       onStatusChange({ msg: `Błąd zapisu: ${e.message}`, type: 'error' });
@@ -771,7 +776,15 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
               ['Update', '🔄 Aktualizacja', 'Aktualizacja wcześniejszego ostrzeżenia (CAP Update)'],
               ['Cancel', '❌ Odwołanie',    'Odwołanie obowiązującego ostrzeżenia (CAP Cancel)'],
             ].map(([t, label, hint]) => (
-              <button key={t} onClick={() => { setMsgType(t); setReferencesId(''); }}
+              <button key={t} onClick={() => {
+                  setMsgType(t);
+                  // Jeśli przełączamy na Update i jest podświetlone ostrzeżenie — auto-załaduj
+                  if (t === 'Update' && highlightedWarningId) {
+                    handleLoadForUpdate(highlightedWarningId);
+                  } else {
+                    setReferencesId('');
+                  }
+                }}
                 title={hint}
                 style={{
                   flex: 1, padding: '7px 0', borderRadius: 'var(--radius-md)',
@@ -1213,6 +1226,27 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
           title="Podgląd CAP XML przed pobraniem">
           {previewLoading ? '⏳' : '👁'} Podgląd XML
         </button>
+
+        {/* Zbiorczy eksport wszystkich aktywnych ostrzeżeń jako ZIP z CAP XML */}
+        <button className="btn btn-secondary" style={{ width:'100%', marginBottom: 6, marginTop: 8, fontSize: 11 }}
+          onClick={async () => {
+            try {
+              onStatusChange({ msg: 'Generuję zbiorczy CAP XML...', type: 'info' });
+              const res = await fetch(`${API}/export/cap-xml?status_filter=active,pending`);
+              if (!res.ok) throw new Error('Brak ostrzeżeń lub błąd serwera');
+              const blob = await res.blob();
+              const count = res.headers.get('X-Warnings-Count') || '?';
+              const a = document.createElement('a');
+              a.href = URL.createObjectURL(blob);
+              a.download = res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] || 'cap_export.zip';
+              a.click();
+              URL.revokeObjectURL(a.href);
+              onStatusChange({ msg: `Pobrano ${count} plików CAP XML`, type: 'success' });
+            } catch(e) { onStatusChange({ msg: `Błąd eksportu: ${e.message}`, type: 'error' }); }
+          }}
+          title="ZIP ze wszystkimi aktywnymi ostrzeżeniami jako pliki CAP XML">
+          📦 Eksportuj wszystkie CAP XML
+        </button>
       {!level && (
           <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', fontFamily: 'var(--font-mono)' }}>
             ↑ Dostosuj parametry aby aktywować ostrzeżenie
@@ -1242,7 +1276,10 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
                   🌩 Import z API IMGW-PIB
                 </span>
                 <span style={{fontSize:11, color:'var(--text-muted)', marginLeft:10}}>
-                  {imgwPreview.count} ostrzeżeń · {imgwPreview.skipped} pominięte
+                  {imgwPreview.count} ostrzeżeń
+                  {(imgwPreview.new_count !== undefined && imgwPreview.new_count < imgwPreview.count) && (
+                    <span style={{color:'#f97316'}}> · {imgwPreview.count - (imgwPreview.new_count||0)} już w bazie</span>
+                  )}
                 </span>
               </div>
               <button onClick={() => setImgwPreview(null)}
@@ -1265,7 +1302,9 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
                   return (
                     <div key={i} style={{
                       border:'1px solid var(--border)', borderRadius:'var(--radius-md)',
-                      padding:12, marginBottom:8, background:'var(--bg-elevated)',
+                      padding:12, marginBottom:8,
+                      background: w.already_exists ? 'var(--bg-base)' : 'var(--bg-elevated)',
+                      opacity: w.already_exists ? 0.5 : 1,
                     }}>
                       <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:6}}>
                         <span style={{
@@ -1276,7 +1315,7 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
                           {w.headline}
                         </span>
                         <span style={{fontSize:10, color:'var(--text-muted)', marginLeft:'auto'}}>
-                          {w.county_count} powiatów
+                          {w.already_exists ? '✓ już w bazie' : `${w.county_count} powiatów`}
                         </span>
                       </div>
                       <div style={{fontSize:10, color:'var(--text-muted)', marginBottom:4}}>
@@ -1310,13 +1349,25 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
                     color:'var(--text-secondary)', fontSize:12, cursor:'pointer'}}>
                   Anuluj
                 </button>
-                <button onClick={() => handleSaveIMGW(imgwPreview.warnings)}
-                  style={{padding:'7px 18px', borderRadius:'var(--radius-md)',
-                    border:'1px solid var(--accent-blue)',
-                    background:'rgba(59,130,246,0.15)',
-                    color:'var(--text-accent)', fontSize:12, fontWeight:600, cursor:'pointer'}}>
-                  ✓ Importuj wszystkie ({imgwPreview.count})
-                </button>
+                {(() => {
+                  const newOnes = imgwPreview.warnings.filter(w => !w.already_exists);
+                  const allExist = newOnes.length === 0;
+                  return (
+                    <button
+                      onClick={() => handleSaveIMGW(newOnes)}
+                      disabled={allExist}
+                      style={{padding:'7px 18px', borderRadius:'var(--radius-md)',
+                        border:'1px solid var(--accent-blue)',
+                        background: allExist ? 'var(--bg-base)' : 'rgba(59,130,246,0.15)',
+                        color: allExist ? 'var(--text-muted)' : 'var(--text-accent)',
+                        fontSize:12, fontWeight:600,
+                        cursor: allExist ? 'default' : 'pointer'}}>
+                      {allExist
+                        ? '✓ Wszystkie już zaimportowane'
+                        : `✓ Importuj nowe (${newOnes.length})`}
+                    </button>
+                  );
+                })()}
               </div>
             )}
           </div>

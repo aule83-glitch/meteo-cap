@@ -15,10 +15,10 @@ try:
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-        HRFlowable, KeepTogether
+        HRFlowable, KeepTogether, Image as RLImage
     )
     from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-    from reportlab.graphics.shapes import Drawing, Rect, String, Line, Circle
+    from reportlab.graphics.shapes import Drawing, Rect, String, Line, Circle, Polygon as RLPolygon, Path
     from reportlab.graphics import renderPDF
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
@@ -126,21 +126,153 @@ def _fmt_dt(iso_str: str) -> str:
 
 
 def _area_summary(counties: list) -> tuple:
-    """Zwraca (opis zasięgu, dict województwo→liczba_powiatów)."""
+    """Zwraca (opis zasięgu, dict województwo→{powiaty[], whole_voiv: bool}).
+    
+    Wykrywa czy całe województwo jest objęte ostrzeżeniem (porównuje liczbę
+    powiatów w warning vs całkowitą liczbę powiatów w województwie).
+    """
     if not counties:
         return "Brak danych", {}
+
+    # Załaduj totale powiatów per województwo (lazy import)
+    try:
+        from app.data.poland_voivodeships import COUNTIES_DATA
+        voiv_totals = {}
+        for c in COUNTIES_DATA:
+            vn = c.get("voiv_name", "")
+            voiv_totals[vn] = voiv_totals.get(vn, 0) + 1
+    except Exception:
+        voiv_totals = {}
+
     voiv_groups: dict = {}
     for c in counties:
         vn = c.get("voiv_name", "Nieznane")
-        voiv_groups.setdefault(vn, []).append(c.get("name", ""))
+        if vn not in voiv_groups:
+            voiv_groups[vn] = {"counties": [], "whole_voiv": False}
+        voiv_groups[vn]["counties"].append(c.get("name", ""))
+
+    # Oznacz które województwa są w pełni objęte
+    for vn, info in voiv_groups.items():
+        total = voiv_totals.get(vn, 0)
+        if total > 0 and len(info["counties"]) >= total:
+            info["whole_voiv"] = True
+
     if len(voiv_groups) >= 14:
-        desc = "Cała Polska"
+        desc = "cała Polska"
     elif len(voiv_groups) == 1:
-        vn, names = list(voiv_groups.items())[0]
-        desc = f"Województwo {vn}"
+        vn = list(voiv_groups.keys())[0]
+        info = voiv_groups[vn]
+        if info["whole_voiv"]:
+            desc = f"całe woj. {vn.lower()}"
+        else:
+            desc = f"woj. {vn.lower()} ({len(info['counties'])} z {voiv_totals.get(vn,'?')} powiatów)"
     else:
-        desc = f"{len(voiv_groups)} województw"
+        # Wymień województwa, oznacz te w pełni objęte
+        full_count = sum(1 for info in voiv_groups.values() if info["whole_voiv"])
+        if full_count == len(voiv_groups):
+            desc = f"{len(voiv_groups)} całych województw"
+        elif full_count > 0:
+            desc = f"{len(voiv_groups)} województw ({full_count} w pełni)"
+        else:
+            desc = f"{len(voiv_groups)} województw"
     return desc, voiv_groups
+
+
+def _draw_warning_map(warning: dict, width_cm: float = 7.5, height_cm: float = 6.0):
+    """Rysuje statyczną mapkę PL z zaznaczonymi powiatami ostrzeżenia jako reportlab Drawing.
+    Bez podkładu — tylko obrys PL (tło) + powiaty (kontur szary) + powiaty objęte (kolor).
+    Returns: reportlab Drawing object lub None gdy brak danych.
+    """
+    try:
+        from app.data.poland_voivodeships import COUNTIES_GEOJSON
+    except Exception:
+        return None
+
+    warning_county_ids = {c.get("id") if isinstance(c, dict) else c
+                          for c in warning.get("counties", [])}
+    if not warning_county_ids:
+        return None
+
+    lvl = warning.get("level", 1)
+    fill_color = LEVEL_COLORS_PDF.get(lvl, colors.yellow)
+
+    # Granice Polski — szukamy bbox ze wszystkich powiatów
+    all_lons, all_lats = [], []
+    for feat in COUNTIES_GEOJSON["features"]:
+        geom = feat.get("geometry") or {}
+        if geom.get("type") == "Polygon":
+            for ring in geom["coordinates"]:
+                for x, y in ring:
+                    all_lons.append(x); all_lats.append(y)
+        elif geom.get("type") == "MultiPolygon":
+            for poly in geom["coordinates"]:
+                for ring in poly:
+                    for x, y in ring:
+                        all_lons.append(x); all_lats.append(y)
+    if not all_lons:
+        return None
+
+    min_lon, max_lon = min(all_lons), max(all_lons)
+    min_lat, max_lat = min(all_lats), max(all_lats)
+
+    # Wymiary w punktach (1cm = 28.346pt)
+    w_pt = width_cm * 28.346
+    h_pt = height_cm * 28.346
+    pad = 4
+    draw_w = w_pt - 2 * pad
+    draw_h = h_pt - 2 * pad
+
+    # Skala zachowująca proporcje (z korektą dla szerokości geograficznej)
+    import math
+    lat_correction = math.cos(math.radians((min_lat + max_lat) / 2))
+    geo_w = (max_lon - min_lon) * lat_correction
+    geo_h = max_lat - min_lat
+    scale = min(draw_w / geo_w, draw_h / geo_h)
+    offset_x = pad + (draw_w - geo_w * scale) / 2
+    offset_y = pad + (draw_h - geo_h * scale) / 2
+
+    def project(lon, lat):
+        x = offset_x + (lon - min_lon) * lat_correction * scale
+        y = offset_y + (lat - min_lat) * scale
+        return x, y
+
+    d = Drawing(w_pt, h_pt)
+    # Białe tło z cienkim borderem
+    d.add(Rect(0, 0, w_pt, h_pt, fillColor=colors.white,
+               strokeColor=colors.HexColor("#cbd5e1"), strokeWidth=0.5))
+
+    # Rysuj wszystkie powiaty
+    for feat in COUNTIES_GEOJSON["features"]:
+        county_id = feat["properties"]["id"]
+        is_active = county_id in warning_county_ids
+        geom = feat.get("geometry") or {}
+
+        if is_active:
+            fc = fill_color
+            sc = colors.HexColor("#1e293b")
+            sw = 0.4
+        else:
+            fc = colors.HexColor("#f1f5f9")  # bardzo jasny szary
+            sc = colors.HexColor("#cbd5e1")  # delikatny kontur
+            sw = 0.2
+
+        def draw_ring(ring):
+            pts = []
+            for x, y in ring:
+                px, py = project(x, y)
+                pts.extend([px, py])
+            if len(pts) >= 6:
+                d.add(RLPolygon(points=pts, fillColor=fc, strokeColor=sc, strokeWidth=sw))
+
+        if geom.get("type") == "Polygon":
+            for ring in geom["coordinates"]:
+                draw_ring(ring)
+        elif geom.get("type") == "MultiPolygon":
+            for poly in geom["coordinates"]:
+                for ring in poly:
+                    draw_ring(ring)
+
+    return d
 
 
 def generate_warning_pdf(
@@ -210,13 +342,19 @@ def generate_warning_pdf(
         fontSize=7, textColor=colors.HexColor("#94a3b8"),
         alignment=TA_CENTER, fontName=_FONT_REGULAR)
 
-    story = []
-
     # === NAGŁÓWEK ===
-    # Logo/header bar
+    story = []
+    # Logo IMGW-PIB (PNG) + tytuł + data
+    _LOGO_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
+    _logo_file = os.path.join(_LOGO_DIR, 'imgw_logo_en.png' if EN else 'imgw_logo_pl.png')
+    if os.path.exists(_logo_file):
+        logo_cell = RLImage(_logo_file, width=3.2*cm, height=1.0*cm, kind='proportional')
+    else:
+        logo_cell = Paragraph('<b>IMGW-PIB</b>', ParagraphStyle('logo',
+            fontSize=12, textColor=colors.white, fontName=_FONT_BOLD))
+
     header_data = [[
-        Paragraph('<b>IMGW-PIB</b>', ParagraphStyle('logo',
-            fontSize=14, textColor=colors.white, fontName=_FONT_BOLD)),
+        logo_cell,
         Paragraph(f'<b>{title}</b>', ParagraphStyle('title',
             fontSize=11, textColor=colors.white, fontName=_FONT_BOLD,
             alignment=TA_CENTER)),
@@ -384,19 +522,55 @@ def generate_warning_pdf(
             ]))
             block_elements.append(detail_table)
 
+            # Mapka obszaru ostrzeżenia — statyczna, powiaty objęte zakolorowane
+            _map_drawing = _draw_warning_map(w, width_cm=8.5, height_cm=6.5)
+            if _map_drawing is not None:
+                # Mapka wycentrowana, bez duplikacji opisu (opis jest poniżej w sekcji powiaty)
+                _map_row = Table(
+                    [[_map_drawing]],
+                    colWidths=[17*cm],
+                )
+                _map_row.setStyle(TableStyle([
+                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                    ('LEFTPADDING', (0,0), (-1,-1), 0),
+                    ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                ]))
+                block_elements.append(Spacer(1, 0.2*cm))
+                block_elements.append(_map_row)
+
             # Województwa z powiatami
             if voiv_groups:
-                block_elements.append(Spacer(1, 0.15*cm))
-                block_elements.append(Paragraph(
-                    "Warning area:" if EN else "Obszar ostrzeżenia:",
-                    ParagraphStyle('al', fontSize=8, fontName=_FONT_BOLD,
-                                   textColor=colors.HexColor("#475569"))))
-                for vn, names in sorted(voiv_groups.items()):
-                    names_str = ", ".join(sorted(names))
+                # Sekcja "Powiaty" pojawia się tylko jeśli choć jedno województwo jest
+                # niekompletne — bo dla całych nie ma sensu wymieniać powiatów.
+                partial_voivs = [(vn, info) for vn, info in sorted(voiv_groups.items())
+                                 if not info.get("whole_voiv")]
+                whole_voivs = [vn for vn, info in sorted(voiv_groups.items())
+                               if info.get("whole_voiv")]
+
+                if partial_voivs or whole_voivs:
+                    block_elements.append(Spacer(1, 0.15*cm))
                     block_elements.append(Paragraph(
-                        f'<b>woj. {vn}:</b> {names_str}',
-                        ParagraphStyle('vl', fontSize=7, leading=10, fontName=_FONT_REGULAR,
-                                       textColor=colors.HexColor("#374151"))))
+                        "Affected counties:" if EN else "Powiaty objęte:",
+                        ParagraphStyle('al', fontSize=8, fontName=_FONT_BOLD,
+                                       textColor=colors.HexColor("#475569"))))
+
+                    # Najpierw całe województwa razem, jedną linią
+                    if whole_voivs:
+                        whole_str = ", ".join(v.lower() for v in whole_voivs)
+                        block_elements.append(Paragraph(
+                            f'<b>całe województwa:</b> {whole_str}',
+                            ParagraphStyle('vw', fontSize=7, leading=10, fontName=_FONT_REGULAR,
+                                           textColor=colors.HexColor("#374151"))))
+
+                    # Następnie częściowo objęte — z listą powiatów
+                    for vn, info in partial_voivs:
+                        names_lc = sorted(n.lower() for n in info["counties"])
+                        names_str = ", ".join(names_lc)
+                        block_elements.append(Paragraph(
+                            f'<b>woj. {vn.lower()}:</b> {names_str}',
+                            ParagraphStyle('vl', fontSize=7, leading=10, fontName=_FONT_REGULAR,
+                                           textColor=colors.HexColor("#374151"))))
 
             # Parametry meteo
             params = w.get("params", {})

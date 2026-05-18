@@ -37,6 +37,27 @@ const PHENOMENON_ICONS = {
   mgla_szadz:'🌫', gesta_mgla:'🌫', oblodzenie:'🧊',
   opady_sniegu:'🌨', przymrozki:'🌡',
 };
+// Skróty tekstowe dla markerów MA — czytelne na każdym tle i rozmiarze
+const PHENOMENON_ABBR = {
+  burze:                    'BURZE',
+  intensywne_opady_deszczu: 'DESZCZ',
+  intensywne_opady_sniegu:  'ŚNIEG',
+  silny_wiatr:              'WIATR',
+  silny_mroz:               'MRÓZ',
+  upal:                     'UPAŁ',
+  opady_marzniece:          'MARZNIE',
+  roztopy:                  'ROZTOPY',
+  silny_deszcz_z_burzami:   'BURZE',
+  zawieje_zamiecie:         'ZAWIEJA',
+  mgla_szadz:               'MGŁA',
+  gesta_mgla:               'MGŁA',
+  oblodzenie:               'OBLODZ.',
+  opady_sniegu:             'ŚNIEG',
+  przymrozki:               'PRZYMRZ.',
+  inne_zagrożenie:          'INNE',
+  pozar_lasu:               'POŻAR',
+  grad:                     'GRAD',
+};
 const PHENOMENON_SHORT = {
   burze:'Burze', intensywne_opady_deszczu:'Op. deszczu',
   intensywne_opady_sniegu:'Op. śniegu', silny_wiatr:'Wiatr',
@@ -50,10 +71,19 @@ const PHENOMENON_SHORT = {
 export default function MapPanel({
   onPolygonDrawn, selectedCounties, warnings,
   onClear, onCountyToggle,
-  highlightedWarningId,   // ID ostrzeżenia do podświetlenia (z historii/edytora)
+  highlightedWarningId,
+  onHighlightWarning,
   showWarningLabels = true,
+  // MA state z App.js — gdy dostarczone, MapPanel nie fetcha samodzielnie
+  maWarningsProp, maEnabledProp, maLoadingProp, onMaStateChange,
 }) {
   const mapRef       = useRef(null);
+  // Cykl podświetlania: klikanie na powiat krąży po ostrzeżeniach na tym powiecie
+  const cycleRef     = useRef({ countyId: null, index: -1 });
+  const warningsRef  = useRef([]);   // aktualne warnings dostępne w starych closure'ach (click handler)
+  const onCountyToggleRef = useRef(null);
+  const onHighlightWarningRef = useRef(null);
+  const pickModeRef = useRef(false);  // tryb klikania powiatów do edycji
   const leafletMap   = useRef(null);
   const drawnItems   = useRef(null);
   const drawControl  = useRef(null);
@@ -67,15 +97,31 @@ export default function MapPanel({
   const allCountiesRef = useRef([]);
 
   const [drawMode,   setDrawMode]   = useState(false);
+  const [pickMode,   setPickMode]   = useState(false);  // Tryb klikania powiatów do edycji
   const [loading,      setLoading]      = useState(true);
   const [layersLoaded, setLayersLoaded] = useState(false);
   const [activeBase, setActiveBase] = useState(getMapState().tileLayerId);
   const [showPicker, setShowPicker] = useState(false);
   const [L, setL] = useState(null);
-  const [maEnabled, setMaEnabled]       = useState(false);   // warstwa MeteoAlarm
-  const [maCountries, setMaCountries]   = useState(['DE','CZ','SK','UA','LT']); // MeteoAlarm; BY i RU_KGD domyślnie OFF — włącz ręcznie z ostrożnością
-  const [maWarnings, setMaWarnings]     = useState([]);
-  const [maLoading, setMaLoading]       = useState(false);
+  const [maEnabled, setMaEnabled] = useState(() => {
+    if (maEnabledProp !== undefined) return maEnabledProp;
+    try { return localStorage.getItem('meteocap_ma_enabled') === 'true'; } catch { return false; }
+  });
+  const [maCountries, setMaCountries] = useState(() => {
+    try {
+      const stored = localStorage.getItem('meteocap_ma_countries');
+      return stored ? JSON.parse(stored) : ['DE','CZ','SK','UA','LT'];
+    } catch { return ['DE','CZ','SK','UA','LT']; }
+  });
+  // Gdy MA warnings zarządzane z App.js, używaj propsów; inaczej lokalny state
+  const [maWarningsLocal, setMaWarningsLocal] = useState([]);
+  const maWarnings = maWarningsProp !== undefined ? maWarningsProp : maWarningsLocal;
+  const [maLoading, setMaLoading] = useState(false);
+
+  // Synchronizuj maEnabled z propsem gdy zmieni się w App
+  useEffect(() => {
+    if (maEnabledProp !== undefined) setMaEnabled(maEnabledProp);
+  }, [maEnabledProp]);
   const maLayersRef = useRef([]);
 
   // Ładuj Leaflet dynamicznie
@@ -88,6 +134,14 @@ export default function MapPanel({
     })();
     return () => { alive = false; };
   }, []);
+
+  // Synchronizuj refy z bieżącymi propsami (do użycia w starych closure'ach kliknięcia powiatu)
+  useEffect(() => {
+    warningsRef.current = warnings || [];
+    onCountyToggleRef.current = onCountyToggle;
+    onHighlightWarningRef.current = onHighlightWarning;
+    pickModeRef.current = pickMode;
+  }, [warnings, onCountyToggle, onHighlightWarning, pickMode]);
 
   // Inicjalizacja mapy
   useEffect(() => {
@@ -112,6 +166,38 @@ export default function MapPanel({
 
     // Zapisuj pozycję przy każdym ruchu
     map.on('moveend zoomend', () => saveMapPosition(map));
+
+    // Globalny tooltip powiatów — jeden div na całą mapę, bez Leaflet bindTooltip.
+    // Rozwiązuje problem "duchów" (tooltipów które nie gasną przy szybkim przejściu).
+    window._countyTT = (() => {
+      let el = document.getElementById('county-global-tt');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'county-global-tt';
+        el.style.cssText = [
+          'position:fixed', 'z-index:9998', 'pointer-events:none', 'display:none',
+          'background:var(--bg-surface,#1e293b)', 'color:var(--text-primary,#f1f5f9)',
+          'border:1px solid var(--border,#334155)', 'border-radius:4px',
+          'padding:5px 8px', 'font-size:11px', 'line-height:1.45',
+          'box-shadow:0 2px 8px rgba(0,0,0,0.5)', 'max-width:200px',
+          'white-space:normal', 'word-break:break-word',
+        ].join(';');
+        document.body.appendChild(el);
+      }
+      return {
+        show(html, e) {
+          el.innerHTML = html;
+          el.style.display = 'block';
+          this.move(e);
+        },
+        move(e) {
+          const oe = e.originalEvent || e;
+          el.style.left = (oe.clientX + 14) + 'px';
+          el.style.top  = (oe.clientY - 10) + 'px';
+        },
+        hide() { el.style.display = 'none'; },
+      };
+    })();
 
     leafletMap.current = map;
     loadLayers(map, L);
@@ -151,11 +237,70 @@ export default function MapPanel({
         style: COUNTY_STYLE,
         onEachFeature: (feature, layer) => {
           countyLayers.current[feature.properties.id] = layer;
-          layer.bindTooltip(
-            `<b>${feature.properties.name}</b><br><span style="opacity:.7;font-size:10px">${feature.properties.voiv_name}</span>`,
-            { className: 'map-county-tooltip', sticky: true }
-          );
-          layer.on('click', () => { if (onCountyToggle) onCountyToggle(feature.properties); });
+          // Tooltip powiatów — globalny div, nie Leaflet bindTooltip.
+          // Leaflet zostawia "duchy" tooltipów przy szybkim przejściu przez wiele
+          // warstw. Globalny div eliminuje ten problem całkowicie.
+          const ttHtml = `<b>${feature.properties.name}</b><br><span style="opacity:.7;font-size:10px">${feature.properties.voiv_name}</span>`;
+          let _ctt = null; // timer
+          layer.on('mouseover', function(e) {
+            clearTimeout(_ctt);
+            _ctt = setTimeout(() => window._countyTT.show(ttHtml, e), 600);
+          });
+          layer.on('mousemove', function(e) {
+            window._countyTT.move(e);
+          });
+          layer.on('mouseout', function() {
+            clearTimeout(_ctt);
+            window._countyTT.hide();
+          });
+          layer.on('click', () => {
+            const countyId = feature.properties.id;
+            const fnHighlight = onHighlightWarningRef.current;
+            const fnToggle    = onCountyToggleRef.current;
+
+            // Tryb "Klikaj powiaty" — kliknięcie zaznacza/odznacza powiat do edycji (cyjan)
+            if (pickModeRef.current) {
+              if (fnToggle) fnToggle(feature.properties);
+              return;
+            }
+
+            // Tryb domyślny — klik na powiat = cykl podświetleń ostrzeżeń
+            const currentWarnings = warningsRef.current || [];
+            const activeWarnings = currentWarnings.filter(w =>
+              w.is_active_leaf !== false && !w.is_cancelled &&
+              (w.status === 'active' || w.status === 'pending') &&
+              (w.counties || []).some(c => c.id === countyId)
+            );
+            const cycle = cycleRef.current;
+
+            if (activeWarnings.length === 0) {
+              // Brak ostrzeżeń → nic nie rób (żadnej edycji bez intencji)
+              cycle.countyId = null;
+              cycle.index = -1;
+              if (fnHighlight) fnHighlight(null);
+              return;
+            }
+
+            if (cycle.countyId !== countyId) {
+              // Nowy powiat — pokaż pierwsze ostrzeżenie
+              cycle.countyId = countyId;
+              cycle.index = 0;
+              if (fnHighlight) fnHighlight(activeWarnings[0].id);
+              return;
+            }
+
+            // Ten sam powiat — następne ostrzeżenie LUB odznaczenie
+            cycle.index++;
+            if (cycle.index >= activeWarnings.length) {
+              // Po ostatnim ostrzeżeniu → odznacz wszystko (powrót do stanu początkowego)
+              cycle.index = -1;
+              cycle.countyId = null;
+              if (fnHighlight) fnHighlight(null);
+              return;
+            }
+            // Pokaż kolejne ostrzeżenie w cyklu
+            if (fnHighlight) fnHighlight(activeWarnings[cycle.index].id);
+          });
         },
       }).addTo(map);
       voivLayer.current = L.geoJSON(voivRes.data, { style: VOIV_STYLE, interactive: false }).addTo(map);
@@ -194,16 +339,25 @@ export default function MapPanel({
   useEffect(() => {
     const map = leafletMap.current;
     if (!map || !L) return;
-    hlLayers.current.forEach(l => map.removeLayer(l));
+    hlLayers.current.forEach(l => { if (l.restore) l.restore(); });
     hlLayers.current = [];
     if (!highlightedWarningId) return;
     const w = warnings.find(x => x.id === highlightedWarningId);
     if (!w) return;
+    // Wzmocniony kolor ostrzeżenia (mniej przezroczysty, grubsza ramka)
+    const lvlColor = LEVEL_COLORS[w.level] || '#facc15';
+    const hlStyle = {
+      color: LEVEL_BORDERS[w.level] || '#92400e',
+      fillColor: lvlColor,
+      fillOpacity: 0.55,  // wzmocniony vs normalny 0.25
+      weight: 3,
+    };
     (w.counties || []).forEach(c => {
       const layer = countyLayers.current[c.id];
       if (layer) {
-        layer.setStyle(HIGHLIGHT_STYLE);
-        hlLayers.current.push({ restore: () => layer.setStyle(COUNTY_STYLE) });
+        const prevStyle = { ...layer.options };
+        layer.setStyle(hlStyle);
+        hlLayers.current.push({ restore: () => layer.setStyle(prevStyle) });
       }
     });
   }, [highlightedWarningId, warnings, L]);
@@ -262,27 +416,28 @@ export default function MapPanel({
 
         const divHtml = `
           <div style="
-            background:${color};color:#000;border:2.5px solid ${LEVEL_BORDERS[w.level]||color};
-            border-radius:7px;padding:4px 8px;font-size:11px;font-weight:700;
-            white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,0.45);
-            display:flex;flex-direction:column;align-items:flex-start;gap:1px;
+            background:${color};color:#000;border:2px solid ${LEVEL_BORDERS[w.level]||color};
+            border-radius:6px;padding:5px 10px;font-size:12px;font-weight:700;
+            white-space:nowrap;
+            box-shadow:0 2px 8px rgba(0,0,0,0.4);
+            display:flex;flex-direction:row;align-items:center;gap:6px;
             opacity:${isDashed?'0.82':'1'};
+            line-height:1.2;
           ">
-            <div style="display:flex;align-items:center;gap:5px">
-              <span style="font-size:17px;line-height:1">${icon}</span>
-              <span>St.${w.level} ${label}</span>
-              ${w.operation_hint === 'escalate' ? '<span style="font-size:11px" title="Eskalacja">⬆</span>' : ''}
-              ${w.operation_hint === 'deescalate' ? '<span style="font-size:11px" title="Deeskalacja">⬇</span>' : ''}
-              ${(w.version || 1) > 1 ? `<span style="font-size:8px;opacity:0.6;font-family:monospace">v${w.version}</span>` : ''}
-              <span style="font-size:9px;opacity:0.7">${statusDot}</span>
-            </div>
-            <div style="font-size:9px;opacity:0.8;font-weight:500;letter-spacing:0.01em">
-              do ${expiresStr}
-            </div>
+            <span style="font-size:18px;line-height:1;flex-shrink:0">${icon}</span>
+            <span style="font-size:12px">St.${w.level} ${label}</span>
+            ${w.operation_hint === 'escalate' ? '<span title="Eskalacja">⬆</span>' : ''}
+            ${w.operation_hint === 'deescalate' ? '<span title="Deeskalacja">⬇</span>' : ''}
+            ${(w.version || 1) > 1 ? `<span style="font-size:9px;opacity:0.6;font-family:monospace">v${w.version}</span>` : ''}
+            <span style="font-size:10px;opacity:0.7;font-weight:500">do ${expiresStr}</span>
           </div>`;
 
         const marker = L.marker([clat, clon], {
-          icon: L.divIcon({ html: divHtml, className: '', iconAnchor: [0, 0] }),
+          icon: L.divIcon({
+            html: divHtml,
+            className: 'ma-warn-label',
+            iconAnchor: [0, 18],   // ~połowa wysokości labela (padding 5+5 + font 12*1.2 = ~24px → środek ~12, z marginesem)
+          }),
           zIndexOffset: 400, interactive: true,
         });
         marker.bindTooltip(
@@ -304,130 +459,260 @@ export default function MapPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [warnings, showWarningLabels, L, layersLoaded]);
 
-  // MeteoAlarm — ładuj gdy włączone
+  // MeteoAlarm — ładuj lokalnie tylko gdy nie ma propsów z App.js
   useEffect(() => {
-    if (!maEnabled) {
-      setMaWarnings([]);
-      return;
-    }
+    if (maWarningsProp !== undefined) return; // zarządzane z App
+    if (!maEnabled) { setMaWarningsLocal([]); return; }
     const load = async () => {
       setMaLoading(true);
       try {
         const res = await axios.get(`${API}/meteoalarm/warnings?countries=${maCountries.join(',')}`);
-        setMaWarnings(res.data.warnings || []);
+        setMaWarningsLocal(res.data.warnings || []);
       } catch (e) { console.warn('MeteoAlarm error:', e); }
       finally { setMaLoading(false); }
     };
     load();
-    const interval = setInterval(load, 600000); // odśwież co 10 min
+    const interval = setInterval(load, 600000);
     return () => clearInterval(interval);
-  }, [maEnabled, maCountries]);
+  }, [maEnabled, maCountries, maWarningsProp]);
 
+  // Renderuj warstwy MeteoAlarm — odświeża się przy zmianie danych LUB zoom
   // Renderuj warstwy MeteoAlarm
-  useEffect(() => {
+  // Strategia:
+  //   - Zawsze rysuj kolorowe kontury ostrzeżeń (niezależnie od zoom)
+  //   - Jeden marker per ostrzeżenie, nad centrum jego konturów
+  //   - Przy zoom ≤5: agreguj per kraj → 1 marker nad centrum wszystkich konturów kraju
+  //   - Tooltip: globalny, zarządzany ręcznie (bez bindTooltip na polygon)
+  //     → eliminuje "duchy" zawieszonych tooltipów
+  const renderMaLayers = useCallback(() => {
     const map = leafletMap.current;
     if (!map || !L) return;
     maLayersRef.current.forEach(l => { try { map.removeLayer(l); } catch(e) {} });
     maLayersRef.current = [];
     if (!maEnabled || maWarnings.length === 0) return;
 
-    // Konwertuj geometry GeoJSON (Polygon / MultiPolygon) → tablica ringów [[lat,lon],…]
+    const zoom = map.getZoom();
+
     const geomToRings = (geometry) => {
       if (!geometry) return [];
-      if (geometry.type === 'Polygon') {
-        return [geometry.coordinates[0].map(c => [c[1], c[0]])];
-      }
-      if (geometry.type === 'MultiPolygon') {
-        return geometry.coordinates.map(poly => poly[0].map(c => [c[1], c[0]]));
-      }
+      if (geometry.type === 'Polygon') return [geometry.coordinates[0].map(c => [c[1], c[0]])];
+      if (geometry.type === 'MultiPolygon') return geometry.coordinates.map(poly => poly[0].map(c => [c[1], c[0]]));
       return [];
     };
 
-    maWarnings.forEach(w => {
+    // Zbierz wszystkie ringi per ostrzeżenie (do centroidu)
+    // Struktura: [{warning, rings:[...]}]
+    const withRings = maWarnings.map(w => {
+      const rings = [];
+      if (w.geocode_geometries && w.geocode_geometries.length > 0) {
+        w.geocode_geometries.forEach(gg => geomToRings(gg.geometry).forEach(r => { if (r.length >= 3) rings.push(r); }));
+      } else if (w.polygon && w.polygon.length >= 3) {
+        rings.push(w.polygon.map(p => [p[1], p[0]]));
+      }
+      return { w, rings };
+    });
+
+    // Globalny tooltip div — jeden na całą mapę, bez Leaflet bindTooltip
+    let ttEl = document.getElementById('ma-global-tt');
+    if (!ttEl) {
+      ttEl = document.createElement('div');
+      ttEl.id = 'ma-global-tt';
+      ttEl.className = 'map-county-tooltip leaflet-tooltip';
+      ttEl.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;display:none;max-width:260px;font-size:11px;line-height:1.5;padding:6px 9px;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.4);white-space:normal;word-break:break-word';
+      document.body.appendChild(ttEl);
+    }
+    let ttTimer = null;
+    const showTT = (html, e) => {
+      clearTimeout(ttTimer);
+      ttEl.innerHTML = html;
+      ttEl.style.display = 'block';
+      moveTT(e);
+    };
+    const moveTT = (e) => {
+      const x = e.originalEvent ? e.originalEvent.clientX : e.clientX;
+      const y = e.originalEvent ? e.originalEvent.clientY : e.clientY;
+      ttEl.style.left = (x + 14) + 'px';
+      ttEl.style.top  = (y - 10) + 'px';
+    };
+    const hideTT = () => {
+      ttTimer = setTimeout(() => { ttEl.style.display = 'none'; }, 80);
+    };
+    // Cleanup przy usuwaniu warstw
+    const cleanupTT = () => { clearTimeout(ttTimer); ttEl.style.display = 'none'; };
+
+    // Narysuj kontury dla WSZYSTKICH ostrzeżeń
+    withRings.forEach(({ w, rings }) => {
       const color       = MA_LEVEL_COLORS[w.level] || '#facc15';
       const borderColor = MA_COUNTRY_BORDER[w.country] || '#64748b';
       const flag        = w.country_flag || '';
       const isPolitical = w.political_caution;
       const cautionNote = isPolitical
-        ? `<br/><span style="font-size:9px;opacity:0.65;color:#9ca3af">⚠ ${w.source_note || 'Dane poza MeteoAlarm/EUMETNET'}</span>`
-        : '';
-      const tooltipBase = `${flag} <b>${w.country_name}</b><br/>${w.headline || w.event || w.phenomenon}<br/>Stopień ${w.level}${cautionNote}`;
+        ? `<br/><span style="font-size:9px;opacity:0.65;color:#9ca3af">⚠ ${w.source_note || 'Dane poza MeteoAlarm/EUMETNET'}</span>` : '';
+      const phenLabel   = PHENOMENON_SHORT[w.phenomenon] || w.phenomenon;
+      const tooltipHtml = `${flag} <b>${w.country_name}</b><br/>${phenLabel} — Stopień ${w.level}` +
+        (w.area_desc ? `<br/><span style="font-size:10px;opacity:0.8">${w.area_desc}</span>` : '') + cautionNote;
 
-      const allRings = [];   // wszystkie ringi tego ostrzeżenia (do centroidu labela)
-
-      if (w.geocode_geometries && w.geocode_geometries.length > 0) {
-        // Preferuj precyzyjne granice powiatów z lookupowego pliku (EMMA_ID)
-        w.geocode_geometries.forEach(gg => {
-          const rings = geomToRings(gg.geometry);
-          rings.forEach(ring => {
-            if (ring.length < 3) return;
-            const poly = L.polygon(ring, {
-              color: borderColor, weight: 1.2,
-              fillColor: color, fillOpacity: 0.18,
-              dashArray: '5,4',
-            });
-            poly.bindTooltip(
-              `${tooltipBase}<br/><span style="font-size:10px;opacity:0.8">${gg.name}</span>`,
-              { className: 'map-county-tooltip' }
-            );
-            poly.addTo(map);
-            maLayersRef.current.push(poly);
-            allRings.push(...ring);
-          });
-        });
-
-      } else if (w.polygon && w.polygon.length >= 3) {
-        // Fallback: polygon bezpośrednio z feed (DWD, niektóre kraje)
-        const ring = w.polygon.map(p => [p[1], p[0]]);
+      rings.forEach((ring, ri) => {
         const poly = L.polygon(ring, {
-          color: borderColor, weight: 1.5,
-          fillColor: color, fillOpacity: 0.15,
-          dashArray: '5,4',
+          color: borderColor, weight: 0.9,
+          fillColor: color, fillOpacity: 0.12,
+          dashArray: '4,5',
         });
-        poly.bindTooltip(
-          `${tooltipBase}<br/><span style="font-size:10px;opacity:0.8">${w.area_desc || ''}</span>`,
-          { className: 'map-county-tooltip' }
-        );
+        poly.on('mouseover', (e) => showTT(tooltipHtml, e));
+        poly.on('mousemove', (e) => moveTT(e));
+        poly.on('mouseout',  ()  => hideTT());
         poly.addTo(map);
         maLayersRef.current.push(poly);
-        allRings.push(...ring);
-
-      } else {
-        // Ostatni fallback: marker w centrum kraju lub regionu
-        const CENTERS = {
-          DE:[51.2,10.5], CZ:[49.8,15.5], SK:[48.7,19.7], LT:[55.9,23.9],
-          BY:[53.7,28.0], UA:[49.0,32.0],
-          RU_KGD:[54.7,20.5],  // Kaliningrad
-        };
-        const center = CENTERS[w.country];
-        if (center) {
-          const markerColor = isPolitical ? '#9ca3af' : color;
-          const icon = L.divIcon({
-            html: `<div style="background:${markerColor};border:2px solid ${borderColor};border-radius:4px;padding:3px 7px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.4);opacity:${isPolitical?0.8:1}">${flag} St.${w.level}${isPolitical?' ⚠':''}</div>`,
-            className: '', iconAnchor: [0, 0],
-          });
-          const mi = L.marker(center, { icon, interactive: true });
-          mi.bindTooltip(`${tooltipBase}<br/><span style="font-size:10px;opacity:0.8">${w.area_desc || ''}</span>`, { className: 'map-county-tooltip' });
-          mi.addTo(map);
-          maLayersRef.current.push(mi);
-        }
-        return; // brak geometrii → nie dodajemy dodatkowego labela
-      }
-
-      // Jeden label per ostrzeżenie — centroid wszystkich jego geometrii
-      if (allRings.length > 0) {
-        const clat = allRings.reduce((s, p) => s + p[0], 0) / allRings.length;
-        const clon = allRings.reduce((s, p) => s + p[1], 0) / allRings.length;
-        const labelHtml = `<div style="background:${color};border:2px solid ${borderColor};border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.4);pointer-events:none">${flag} St.${w.level}</div>`;
-        const mi = L.marker([clat, clon], {
-          icon: L.divIcon({ html: labelHtml, className: '', iconAnchor: [0, 0] }),
-          interactive: false, zIndexOffset: 500,
-        });
-        mi.addTo(map);
-        maLayersRef.current.push(mi);
-      }
+      });
     });
+
+    // Markery: przy zoom ≤5 agreguj per kraj, inaczej 1 per ostrzeżenie
+    const FALLBACK_CENTERS = {
+      DE:[51.2,10.5], CZ:[49.8,15.5], SK:[48.7,19.7], LT:[55.9,23.9],
+      BY:[53.7,28.0], UA:[49.0,32.0], RU_KGD:[54.7,20.5],
+    };
+
+    const makeMarker = (clat, clon, w, zoom, count = 1) => {
+      const color       = MA_LEVEL_COLORS[w.level] || '#facc15';
+      const borderColor = MA_COUNTRY_BORDER[w.country] || '#64748b';
+      const flag        = w.country_flag || '';
+      const phenIcon    = PHENOMENON_ICONS[w.phenomenon] || '⚠';
+      const phenLabel   = PHENOMENON_SHORT[w.phenomenon] || w.phenomenon;
+      const dotAlpha    = zoom <= 5 ? 0.65 : 0.8;
+      const textColor   = w.level >= 3 ? '#fff' : '#111';
+      // Kółko z emoji — rozmiar zależy od zoom
+      const dotSize = zoom <= 5 ? 22 : 24;
+      const fontSize = zoom <= 5 ? 13 : 14;
+      const html = `
+<div class="ma-wm-wrap" style="opacity:${dotAlpha}">
+  <div class="ma-wm-dot" style="background:${color};border:2px solid ${borderColor};
+    border-radius:50%;width:${dotSize}px;height:${dotSize}px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:${fontSize}px;line-height:1;
+    box-shadow:0 1px 5px rgba(0,0,0,0.4);
+    flex-shrink:0;transition:border-radius 0.15s;
+  ">${phenIcon}</div>
+  <div class="ma-wm-label" style="max-width:0;overflow:hidden;opacity:0;
+    background:${color};border:2px solid ${borderColor};border-left:none;
+    border-radius:0 4px 4px 0;height:${dotSize}px;
+    display:flex;align-items:center;font-size:10px;font-weight:700;color:${textColor};
+    box-shadow:2px 1px 4px rgba(0,0,0,0.2);
+    transition:max-width 0.18s,opacity 0.12s,padding 0.12s;white-space:nowrap;
+  ">${flag} ${phenLabel} St.${w.level}${count > 1 ? ` (${count})` : ''}</div>
+</div>`;
+      const half = Math.round(dotSize / 2);
+      const mi = L.marker([clat, clon], {
+        icon: L.divIcon({ html, className: 'ma-wm-marker', iconAnchor: [half, half] }),
+        interactive: true, zIndexOffset: 500,
+      });
+      const ttHtml = count > 1
+        ? `${flag} <b>${w.country_name}</b><br/>${phenIcon} ${phenLabel} St.${w.level}<br/><span style="opacity:0.8">${count} ostrzeżeń w okolicy</span>`
+        : `${flag} <b>${w.country_name}</b> — ${phenLabel}<br/>Stopień ${w.level}` +
+          (w.area_desc ? `<br/><span style="font-size:10px;opacity:0.8">${w.area_desc}</span>` : '');
+      mi.on('mouseover', (e) => showTT(ttHtml, e));
+      mi.on('mousemove', (e) => moveTT(e));
+      mi.on('mouseout',  ()  => hideTT());
+      mi.addTo(map);
+      maLayersRef.current.push(mi);
+    };
+
+    // Centroidy per ostrzeżenie (z własnych ringów, nie per kraj)
+    const candidates = [];
+    withRings.forEach(({ w, rings }) => {
+      const flat = rings.flat();
+      let clat, clon;
+      if (flat.length > 0) {
+        clat = flat.reduce((s, p) => s + p[0], 0) / flat.length;
+        clon = flat.reduce((s, p) => s + p[1], 0) / flat.length;
+      } else {
+        const fb = FALLBACK_CENTERS[w.country];
+        if (!fb) return;
+        [clat, clon] = fb;
+      }
+      candidates.push({ w, clat, clon });
+    });
+
+    // Pixel-distance spatial clustering — bez zewnętrznych bibliotek.
+    // Markery bliżej niż CLUSTER_PX pikseli na ekranie łączą się w jeden.
+    // Klaster = najwyższy stopień w grupie; tooltip pokazuje ile zjawisk.
+    // Hamburg-przymrozek i Monachium-upał daleko od siebie → 2 osobne markery. ✓
+    const CLUSTER_PX = zoom <= 5 ? 40 : zoom <= 7 ? 28 : 0; // 0 = brak clusteringu
+
+    let finalMarkers = candidates.map(c => ({ ...c, count: 1 }));
+    if (CLUSTER_PX > 0 && candidates.length > 1) {
+      const used = new Array(candidates.length).fill(false);
+      const clusters = [];
+      candidates.forEach((c, i) => {
+        if (used[i]) return;
+        const px = map.latLngToContainerPoint([c.clat, c.clon]);
+        const group = [c];
+        used[i] = true;
+        candidates.forEach((c2, j) => {
+          if (used[j]) return;
+          const px2 = map.latLngToContainerPoint([c2.clat, c2.clon]);
+          if (Math.hypot(px.x - px2.x, px.y - px2.y) < CLUSTER_PX) {
+            group.push(c2); used[j] = true;
+          }
+        });
+        const clat = group.reduce((s, x) => s + x.clat, 0) / group.length;
+        const clon = group.reduce((s, x) => s + x.clon, 0) / group.length;
+        const top  = group.reduce((a, b) => b.w.level > a.w.level ? b : a);
+        clusters.push({ w: top.w, clat, clon, count: group.length });
+      });
+      finalMarkers = clusters;
+    }
+
+    // Dodge iteracyjny — przesuwa nakładające się markery aż się rozejdą
+    // (max 5 iteracji żeby nie pętlić w nieskończoność)
+    if (finalMarkers.length > 1) {
+      const DODGE_PX = zoom <= 5 ? 26 : 22;
+      const STEP = zoom <= 5 ? 0.25 : 0.18; // stopnie ~25km/18km
+      for (let pass = 0; pass < 5; pass++) {
+        let moved = false;
+        for (let i = 0; i < finalMarkers.length; i++) {
+          for (let j = 0; j < i; j++) {
+            const px1 = map.latLngToContainerPoint([finalMarkers[i].clat, finalMarkers[i].clon]);
+            const px2 = map.latLngToContainerPoint([finalMarkers[j].clat, finalMarkers[j].clon]);
+            if (Math.hypot(px1.x - px2.x, px1.y - px2.y) < DODGE_PX) {
+              // Rozsuń symetrycznie w przeciwnych kierunkach
+              const angle = (i / finalMarkers.length) * 2 * Math.PI;
+              finalMarkers[i] = { ...finalMarkers[i],
+                clon: finalMarkers[i].clon + Math.cos(angle) * STEP,
+                clat: finalMarkers[i].clat + Math.sin(angle) * STEP * 0.5,
+              };
+              moved = true;
+            }
+          }
+        }
+        if (!moved) break;
+      }
+    }
+
+    finalMarkers.forEach(({ w, clat, clon, count }) => makeMarker(clat, clon, w, zoom, count));
+
+
+    // Wyczyść globalny tooltip gdy warstwy są usuwane
+    maLayersRef.current._cleanupTT = cleanupTT;
   }, [maWarnings, maEnabled, L]);
+
+  useEffect(() => {
+    renderMaLayers();
+    return () => {
+      // Cleanup tooltip przy unmount/re-render
+      if (maLayersRef.current._cleanupTT) maLayersRef.current._cleanupTT();
+    };
+  }, [renderMaLayers]);
+
+  // Reaguj na zoom — agregacja/dezagregacja markerów MA
+  useEffect(() => {
+    const map = leafletMap.current;
+    if (!map) return;
+    const onZoom = () => renderMaLayers();
+    map.on('zoomend', onZoom);
+    return () => map.off('zoomend', onZoom);
+  }, [renderMaLayers]);
+
+
 
   // Draw events
   useEffect(() => {
@@ -468,6 +753,7 @@ export default function MapPanel({
   const clearAll = useCallback(() => {
     drawnItems.current?.clearLayers();
     setDrawMode(false);
+    setPickMode(false);
     onClear();
   }, [onClear]);
 
@@ -502,13 +788,15 @@ export default function MapPanel({
           </svg>
           Rysuj poligon
         </button>
-        <button className={`map-btn ${drawMode?'active':''}`} onClick={()=>startDraw(L?.Draw?.Rectangle)}>
+        <button className={`map-btn ${pickMode?'active':''}`}
+          onClick={()=>setPickMode(p=>!p)}
+          title={pickMode ? 'Wyłącz tryb klikania powiatów' : 'Włącz tryb klikania powiatów (zaznaczanie do edycji)'}>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <rect x="2" y="3" width="10" height="8" rx="1" stroke="currentColor" strokeWidth="1.4"/>
+            <path d="M3 7l3 3 5-7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          Rysuj prostokąt
+          {pickMode ? 'Klikam powiaty…' : 'Klikaj powiaty'}
         </button>
-        <button className="map-btn" onClick={selectAll}>
+        <button className={`map-btn ${drawMode?'active':''}`} onClick={selectAll}>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.3"/>
             <path d="M2 7h10M7 2v10" stroke="currentColor" strokeWidth="1" strokeOpacity="0.5"/>
@@ -528,7 +816,11 @@ export default function MapPanel({
       {/* Toggle MeteoAlarm (prawy dół) */}
       <div style={{position:'absolute',bottom:12,right:12,zIndex:900,display:'flex',flexDirection:'column',gap:6,alignItems:'flex-end'}}>
         <button
-          onClick={() => setMaEnabled(p=>!p)}
+          onClick={() => setMaEnabled(p => {
+            const next = !p;
+            try { localStorage.setItem('meteocap_ma_enabled', String(next)); } catch {}
+            return next;
+          })}
           style={{
             padding:'6px 12px', borderRadius:'var(--radius-md)',
             border:'1px solid '+(maEnabled?'var(--accent-blue)':'var(--border)'),
@@ -552,7 +844,11 @@ export default function MapPanel({
               const active = maCountries.includes(cc);
               return (
                 <button key={cc}
-                  onClick={() => setMaCountries(prev => active ? prev.filter(c=>c!==cc) : [...prev,cc])}
+                  onClick={() => setMaCountries(prev => {
+                    const next = active ? prev.filter(c=>c!==cc) : [...prev,cc];
+                    try { localStorage.setItem('meteocap_ma_countries', JSON.stringify(next)); } catch {}
+                    return next;
+                  })}
                   title={caution
                     ? `${cc} — dane poglądowe spoza MeteoAlarm/EUMETNET. Traktuj z ostrożnością.`
                     : cc}

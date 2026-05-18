@@ -4,15 +4,21 @@ export default function Header({ view, onViewChange, warningsCount, activeCount,
   return (
     <header className="header">
       <div className="header-logo">
-        <svg className="header-logo-icon" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="14" cy="14" r="13" stroke="#3b82f6" strokeWidth="1.5"/>
-          <path d="M7 14 C7 10 10 7 14 7 C18 7 21 10 21 14" stroke="#06b6d4" strokeWidth="1.5" strokeLinecap="round"/>
-          <path d="M5 17 C7 13 10 11 14 11 C18 11 21 13 23 17" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round"/>
-          <circle cx="14" cy="20" r="3" fill="#facc15"/>
-          <path d="M14 17 L14 9" stroke="#facc15" strokeWidth="1" strokeDasharray="1.5 2" strokeLinecap="round"/>
-        </svg>
+        {/* IMGW-PIB logo — wersja alternatywna (ikona kółka) inline SVG */}
+        <img
+          src="/assets/imgw_logo_pl.svg"
+          alt="IMGW-PIB"
+          style={{ height: 32, width: 'auto', marginRight: 10, flexShrink: 0 }}
+        />
         <div>
-          <div className="header-title">MeteoCAP Editor</div>
+          <div className="header-title">
+            IMGW-OSMET
+            <span style={{
+              fontSize: 10, fontWeight: 600, padding: '2px 6px', marginLeft: 6,
+              background: 'rgba(59,130,246,0.15)', color: 'var(--accent-blue)',
+              borderRadius: 4, verticalAlign: 'middle'
+            }}>v2.5.8</span>
+          </div>
           <div className="header-subtitle">IMGW-PIB · CAP 1.2</div>
         </div>
       </div>

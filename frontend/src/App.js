@@ -19,7 +19,38 @@ export default function App() {
   const [view,               setView]                = useState('editor');
   const [status,             setStatus]              = useState({ msg: 'Gotowy do pracy', type: 'info' });
   const [highlightedWarning, setHighlightedWarning]  = useState(null);
-  const [settingsTab, setSettingsTab]                 = useState('delivery'); // ID podświetlonego ostrzeżenia na mapie
+  const [settingsTab, setSettingsTab]                 = useState('delivery');
+
+  // MeteoAlarm — stan współdzielony między MapPanel a StatusView
+  const [maEnabled, setMaEnabled] = useState(() => {
+    try { return localStorage.getItem('meteocap_ma_enabled') === 'true'; } catch { return false; }
+  });
+  const [maCountries, setMaCountries] = useState(() => {
+    try {
+      const s = localStorage.getItem('meteocap_ma_countries');
+      return s ? JSON.parse(s) : ['DE','CZ','SK','UA','LT'];
+    } catch { return ['DE','CZ','SK','UA','LT']; }
+  });
+  const [maWarnings, setMaWarnings] = useState([]);
+  const [maLoading,  setMaLoading]  = useState(false);
+  const [maLastFetch, setMaLastFetch] = useState(null);
+
+  const loadMaWarnings = useCallback(async () => {
+    if (!maEnabled || !maCountries.length) { setMaWarnings([]); return; }
+    setMaLoading(true);
+    try {
+      const res = await axios.get(`${API}/meteoalarm/warnings?countries=${maCountries.join(',')}`);
+      setMaWarnings(res.data.warnings || []);
+      setMaLastFetch(new Date());
+    } catch (e) { console.warn('MeteoAlarm error:', e); }
+    finally { setMaLoading(false); }
+  }, [maEnabled, maCountries]);
+
+  useEffect(() => {
+    loadMaWarnings();
+    const interval = setInterval(loadMaWarnings, 600000); // co 10 min
+    return () => clearInterval(interval);
+  }, [loadMaWarnings]);
 
   const loadWarnings = useCallback(async () => {
     try {
@@ -116,7 +147,15 @@ export default function App() {
               onClear={handleClearSelection}
               onCountyToggle={handleCountyToggle}
               highlightedWarningId={highlightedWarning}
+              onHighlightWarning={setHighlightedWarning}
               showWarningLabels={true}
+              maWarningsProp={maWarnings}
+              maEnabledProp={maEnabled}
+              maLoadingProp={maLoading}
+              onMaStateChange={(enabled, countries) => {
+                setMaEnabled(enabled);
+                setMaCountries(countries);
+              }}
             />
           </div>
         )}
@@ -130,6 +169,7 @@ export default function App() {
               onStatusChange={setStatus}
               warnings={warnings}
               onLoadCounties={handleLoadCountiesToMap}
+              highlightedWarningId={highlightedWarning}
             />
           )}
           {view === 'list' && (
@@ -149,10 +189,13 @@ export default function App() {
             <StatusView
               warnings={warnings}
               onRefresh={loadWarnings}
+              maWarnings={maWarnings}
+              maEnabled={maEnabled}
+              maLoading={maLoading}
+              maLastFetch={maLastFetch}
+              onRefreshMa={loadMaWarnings}
               onEdit={(warningId) => {
-                // Przejdź do edytora w trybie Update z wybranym ostrzeżeniem
                 setView('editor');
-                // Posyłamy do EditorPanel przez window event (najprostsze rozwiązanie bez nowego state)
                 setTimeout(() => {
                   window.dispatchEvent(new CustomEvent('meteocap:loadForUpdate', { detail: { warningId } }));
                 }, 100);

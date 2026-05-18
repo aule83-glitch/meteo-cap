@@ -1,6 +1,8 @@
-# MeteoCAP Editor v2.0
+# IMGW-OSMET v2.4.4
 
 **Narzędzie IMGW-PIB do tworzenia, edycji i publikacji ostrzeżeń meteorologicznych zgodnych ze standardem CAP 1.2.**
+
+Poprzednia nazwa robocza: MeteoCAP Editor.
 
 ---
 
@@ -39,37 +41,45 @@ docker compose up -d
 
 ---
 
-## Funkcje
+## Stack
 
-### Edytor ostrzeżeń
-- 15 zjawisk meteorologicznych z suwakami, radio i checkbox
-- Automatyczny stopień 1/2/3 w czasie rzeczywistym
-- Autoteksty: opis przebiegu, skutki i zalecenia ładowane automatycznie po wyznaczeniu stopnia
-- Persystencja stanu formularza przy przełączaniu zakładek
-- Import ostrzeżeń z API IMGW (`danepubliczne.imgw.pl`)
-- Import CAP XML z pliku
+| Warstwa    | Technologia                             |
+|------------|-----------------------------------------|
+| Backend    | FastAPI 0.111, Python 3.12              |
+| Frontend   | React 18, Vite 5, Leaflet 1.9           |
+| Mapy       | CartoDB Dark / OSM / Esri               |
+| Formaty    | CAP 1.2 (XML), GeoJSON, PDF (ReportLab) |
+| Kontenery  | Docker Compose (backend + frontend)     |
 
-### Mapa
-- 380 powiatów GUGiK PRG + 16 województw (WGS84)
-- Rysowanie obszaru ostrzeżenia: poligon, prostokąt lub klikanie na powiaty
-- Kolorowanie powiatów kolorem stopnia (żółty/pomarańczowy/czerwony)
-- MeteoAlarm: ostrzeżenia krajów ościennych DE/CZ/SK/UA/LT/BY
+---
 
-### CAP 1.2
-- Dwa bloki info: pl-PL + en-GB
-- EMMA_ID + TERYT jako geocode
-- msgType: Alert / Update / Cancel
-- Tryb zbiorczy XML + per-powiat ZIP
+## Changelog
 
-### Dystrybucja
-- FTP/FTPS push XML
-- Email SMTP z HTML + załącznik
-- Webhooki HTTP POST
+### v2.4.4 (2026-05-10)
+- Nazwa aplikacji zmieniona: MeteoCAP Editor → **IMGW-OSMET**
+- Logo IMGW-PIB w headerze (SVG) i w raportach PDF (PNG, PL/EN)
+- MeteoAlarm — poprawka severity: `Moderate` → stopień 1, `Severe` → 2, `Extreme` → 3
+- MeteoAlarm — `awareness_level` skala MA (2/3/4) → poprawnie mapowana na 1/2/3
+- MeteoAlarm — markery jako znaki wodne (niski opacity) zamiast pełnych etykiet
+- MeteoAlarm — zoom aggregation: zoom ≤5 = 1 marker per kraj (max level), ≥7 = pełna geometria
+- MeteoAlarm — hover na markerze rozsuwa etykietę z flagą, nazwą zjawiska i stopniem
+- Tooltip powiatów — opóźnienie 700ms (brak zawieszających się hintów)
+- Polygon UA bezpośrednio z `<entry>` (UA nie używa EUMETNET geocode)
 
-### Eksport
-- PDF raport A4 (polskie znaki, skutki i zalecenia per ostrzeżenie)
-- PNG z widoku Status (dopasowany do konturów Polski)
-- SVG mapa ostrzeżeń
+### v2.4.3 (2026-05-08)
+- Fix nowego formatu MeteoAlarm 2026 (CZ/DE/LT): `<cap:geocode>` flat w `<entry>`
+- `find_text()` z obsługą atom namespace (dzieci geocode dziedziczą xmlns Atom)
+- `geocode_search_roots`: przeszukuje zarówno `<cap:area>` jak i `<entry>`
+- `AWARENESS_TYPE_MAP` rozszerzony (fire, hail, frost, fog, gale i in.)
+- Default zjawisko zmieniony z `silny_wiatr` → `inne_zagrożenie`
+- Priorytet pola `event` (nowy format) przed `awareness_type` (stary)
+
+### v2.4.x (wcześniejsze)
+- Integracja MeteoAlarm dla DE, CZ, SK, UA, LT, BY, RU-KGD
+- Mapa z Leaflet: powiaty, województwa, tryb rysowania poligonów
+- Generowanie CAP 1.2 XML + PDF raport
+- Historia ostrzeżeń z podglądem na mapie
+- Widok Status z live-feed aktywnych/oczekujących ostrzeżeń
 
 ---
 
@@ -79,84 +89,28 @@ docker compose up -d
 meteo-cap/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py              # 25+ endpointów REST (FastAPI)
+│   │   ├── main.py                  # FastAPI routes
+│   │   ├── data/
+│   │   │   ├── meteoalarm_geocodes_pl.json   # lookup EMMA_ID → geometria
+│   │   │   ├── counties.json / voivodeships.json
+│   │   │   ├── imgw_logo_pl.png / imgw_logo_en.png  # logo dla PDF
+│   │   │   └── phenomenon_config.py / warning_texts.py
 │   │   ├── services/
-│   │   │   ├── cap_generator.py # Generator CAP 1.2
-│   │   │   ├── warning_levels.py# Logika stopni (kryteria IMGW-PIB)
-│   │   │   ├── pdf_generator.py # Raport PDF (ReportLab + DejaVu)
-│   │   │   ├── map_exporter.py  # Generator SVG
-│   │   │   ├── meteoalarm.py    # MeteoAlarm Atom feed parser
-│   │   │   └── delivery.py      # FTP + email dystrybucja
-│   │   └── data/
-│   │       ├── warning_texts.py     # Opisy per zjawisko/stopień ← EDYTUJ TU
-│   │       ├── phenomenon_config.py # Ikony, skutki, instrukcje ← EDYTUJ TU
-│   │       ├── counties.json        # 380 powiatów GeoJSON (4.6 MB)
-│   │       └── voivodeships.json    # 16 województw GeoJSON
-│   └── requirements.txt
+│   │   │   ├── meteoalarm.py        # parser feedów MeteoAlarm
+│   │   │   ├── cap_generator.py     # generowanie XML CAP 1.2
+│   │   │   ├── pdf_generator.py     # raporty PDF
+│   │   │   └── delivery.py / webhook.py
+│   │   └── models/schemas.py
 ├── frontend/
+│   ├── public/
+│   │   ├── assets/imgw_logo_*.svg   # logo UI
+│   │   └── geocodes_*.geojson       # granice CZ/DE/SK/LT/PL
 │   └── src/
-│       ├── App.js
 │       ├── components/
-│       │   ├── editor/EditorPanel.js   # Główny formularz
-│       │   ├── editor/WarningsList.js  # Historia ostrzeżeń
-│       │   ├── map/MapPanel.js         # Mapa Leaflet (edytor)
-│       │   └── map/StatusView.js       # Widok Status
-│       └── utils/
-│           ├── editorDraft.js  # Persystencja stanu edytora
-│           └── mapState.js     # Persystencja zoom/podkładu
+│       │   ├── map/MapPanel.js      # mapa Leaflet + MeteoAlarm warstwy
+│       │   ├── editor/EditorPanel.js
+│       │   └── common/Header.js
+│       └── App.js
 ├── docker-compose.yml
-├── ROADMAP.md          # ← Todo i planowane funkcje
-└── start-no-docker.ps1
+└── README.md
 ```
-
-### Dane persystowane (Docker volume `/data`)
-```
-/data/
-├── warnings.json       # Baza ostrzeżeń
-├── delivery_config.json# Konfiguracja FTP/email
-├── delivery_log.json   # Log wysyłek
-└── webhooks.json       # Konfiguracja webhooków
-```
-
----
-
-## Konfiguracja
-
-### Teksty ostrzeżeń
-Edytuj `backend/app/data/warning_texts.py` — opisy, instrukcje i skutki per zjawisko i stopień.
-
-### Kryteria stopni
-Edytuj `backend/app/data/warning_levels.py` — progi parametrów dla każdego zjawiska.
-
-### API Key (opcjonalny)
-```yaml
-# docker-compose.yml
-environment:
-  - METEOCAP_API_KEY=twoj_klucz
-```
-
----
-
-## Stack techniczny
-
-| Komponent | Technologia |
-|-----------|-------------|
-| Backend   | FastAPI (Python 3.12), flat JSON → docelowo PostgreSQL |
-| Frontend  | React + Vite, Leaflet.js |
-| Serwer    | nginx (reverse proxy) |
-| PDF       | ReportLab + DejaVu Sans (polskie znaki) |
-| Kontener  | Docker Compose |
-
----
-
-## Znane ograniczenia
-
-- Spatial join po centroidach (nie po poligonach) — planowane PostGIS v3.0
-- Flat-file JSON — brak concurrent editing — planowane PostgreSQL v3.0
-- Brak autoryzacji per-user — planowane LDAP/AD v3.2
-
-Szczegółowy roadmap: [ROADMAP.md](./ROADMAP.md)
-
----
-
-*IMGW-PIB MeteoCAP Editor | Standard CAP 1.2 | © 2026*

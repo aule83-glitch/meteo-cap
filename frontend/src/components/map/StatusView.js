@@ -33,7 +33,8 @@ const PHENOMENON_LABELS_SHORT = {
   przymrozki: 'Przymrozki',
 };
 
-export default function StatusView({ warnings, onRefresh, onEdit }) {
+export default function StatusView({ warnings, onRefresh, onEdit,
+  maWarnings = [], maEnabled = false, maLoading = false, maLastFetch = null, onRefreshMa }) {
   const [phenomenaConfig, setPhenomenaConfig] = useState({});
   const [labelMode, setLabelMode] = useState('icon'); // icon | text | both
   const [filterStatus, setFilterStatus] = useState('active_only'); // active_only | all
@@ -164,140 +165,27 @@ export default function StatusView({ warnings, onRefresh, onEdit }) {
   const handleExportPNG = useCallback(async () => {
     setExporting(true);
     try {
-      const map = leafletMap.current;
-      if (!map || !Object.keys(countyLayers.current).length) {
-        setExporting(false); return;
-      }
-
-      // Dopasuj do Polski i poczekaj
-      map.fitBounds([[49.0, 14.1], [54.9, 24.2]], { padding: [30, 30], animate: false });
-      await new Promise(r => setTimeout(r, 800));
-
-      const container = map.getContainer();
-      const W = container.offsetWidth;
-      const H = container.offsetHeight;
-
-      // Oblicz rzeczywisty bounding box Polski na ekranie
-      let minX=W, maxX=0, minY=H, maxY=0;
-      Object.values(countyLayers.current).forEach(layer => {
-        try {
-          const b = layer.getBounds();
-          const sw = map.latLngToContainerPoint(b.getSouthWest());
-          const ne = map.latLngToContainerPoint(b.getNorthEast());
-          minX = Math.min(minX, sw.x, ne.x);
-          maxX = Math.max(maxX, sw.x, ne.x);
-          minY = Math.min(minY, sw.y, ne.y);
-          maxY = Math.max(maxY, sw.y, ne.y);
-        } catch(e) {}
+      // Backend renderuje metryczkę PNG zgodnie z tym co widać w widoku Status
+      const params = new URLSearchParams({
+        status_filter: filterStatus === 'all' ? 'active,pending,expired' : 'active,pending',
       });
-      const pad = 20;
-      minX = Math.max(0, minX-pad); minY = Math.max(0, minY-pad);
-      maxX = Math.min(W, maxX+pad); maxY = Math.min(H, maxY+pad);
-      const w = maxX-minX, h = maxY-minY;
+      const res = await fetch(`${API}/export/png?${params}`);
+      if (!res.ok) throw new Error('Backend error: ' + res.status);
+      const blob = await res.blob();
+      const fallback = res.headers.get('X-Fallback-Format');
+      const ext = fallback === 'svg' ? 'svg' : 'png';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `imgw-osmet_${new Date().toISOString().slice(0,10)}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch(e) {
+      console.error('Export PNG error:', e);
+    } finally {
+      setExporting(false);
+    }
+  }, [filterStatus]);
 
-      const filtered = warnings.filter(ww =>
-        filterStatus === 'all' || isActiveWarning(ww)
-      );
-
-      // Pomocnicza: spłaszcz getLatLngs do listy ringów
-      const getRings = (layer) => {
-        const ll = layer.getLatLngs();
-        if (!ll || !ll.length) return [];
-        // Polygon: [[LatLng,...]]  MultiPolygon: [[[LatLng,...]],...]
-        if (ll[0] && ll[0][0] && typeof ll[0][0].lat === 'number') return [ll[0]];
-        if (ll[0] && ll[0][0] && Array.isArray(ll[0][0])) return ll[0];
-        if (ll[0] && typeof ll[0].lat === 'number') return [ll];
-        return [ll[0]];
-      };
-
-      let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" style="background:#060a12">`;
-      svg += `<rect width="${w}" height="${h}" fill="#060a12"/>`;
-      svg += `<text x="8" y="14" fill="#6080a0" font-size="9" font-family="monospace">MeteoCAP © IMGW-PIB</text>`;
-
-      // Warstwa 1: wszystkie powiaty (szare tło — bez dziur)
-      Object.entries(countyLayers.current).forEach(([countyId, layer]) => {
-        try {
-          getRings(layer).forEach(ring => {
-            const pts = ring.map(ll => {
-              const p = map.latLngToContainerPoint(ll);
-              return `${(p.x-minX).toFixed(1)},${(p.y-minY).toFixed(1)}`;
-            }).join(' ');
-            svg += `<polygon points="${pts}" fill="#1a2035" stroke="#2a3555" stroke-width="0.4"/>`;
-          });
-        } catch(e) {}
-      });
-
-      // Warstwa 2: powiaty z ostrzeżeniami
-      Object.entries(countyLayers.current).forEach(([countyId, layer]) => {
-        const warn = filtered.find(ww =>
-          (ww.counties || []).some(c => String(c.id) === String(countyId))
-        );
-        if (!warn) return;
-        const col = LEVEL_COLORS[warn.level] || '#facc15';
-        const bdr = LEVEL_BORDERS[warn.level] || col;
-        try {
-          getRings(layer).forEach(ring => {
-            const pts = ring.map(ll => {
-              const p = map.latLngToContainerPoint(ll);
-              return `${(p.x-minX).toFixed(1)},${(p.y-minY).toFixed(1)}`;
-            }).join(' ');
-            svg += `<polygon points="${pts}" fill="${col}" fill-opacity="0.5" stroke="${bdr}" stroke-width="1.2"/>`;
-          });
-        } catch(e) {}
-      });
-
-      // Warstwa 3: labele
-      filtered.forEach(warning => {
-        const icon = phenomenaConfig[warning.phenomenon]?.icon || '⚠';
-        const label = PHENOMENON_LABELS_SHORT[warning.phenomenon] || warning.phenomenon;
-        const col = LEVEL_COLORS[warning.level] || '#facc15';
-        const counties = warning.counties || [];
-        const lats = counties.map(c => c.lat).filter(Boolean);
-        const lons = counties.map(c => c.lon).filter(Boolean);
-        if (!lats.length) return;
-        const clat = lats.reduce((a,b)=>a+b,0)/lats.length;
-        const clon = lons.reduce((a,b)=>a+b,0)/lons.length;
-        const p = map.latLngToContainerPoint([clat, clon]);
-        const x = Math.round(p.x-minX), y = Math.round(p.y-minY);
-        const txt = `${label} ${warning.level}°`;
-        const tw = txt.length * 5.5 + 10;
-        svg += `<text x="${x}" y="${y+4}" text-anchor="middle" font-size="15">${icon}</text>`;
-        svg += `<rect x="${x-tw/2}" y="${y+7}" width="${tw}" height="13" rx="3" fill="${col}" fill-opacity="0.92"/>`;
-        svg += `<text x="${x}" y="${y+17}" text-anchor="middle" font-size="8" font-weight="bold" fill="#000">${txt}</text>`;
-      });
-
-      // Legenda
-      const lx = w-120, ly = h-72;
-      svg += `<rect x="${lx-4}" y="${ly-4}" width="120" height="72" rx="4" fill="rgba(6,10,18,0.88)" stroke="#2a3555" stroke-width="1"/>`;
-      svg += `<text x="${lx}" y="${ly+10}" fill="#e4ecf8" font-size="10" font-weight="bold" font-family="sans-serif">Legenda</text>`;
-      [[1,'#facc15','Stopień 1'],[2,'#f97316','Stopień 2'],[3,'#ef4444','Stopień 3']].forEach(([lvl,col,lbl],i) => {
-        const cy = ly+22+i*16;
-        svg += `<rect x="${lx}" y="${cy-5}" width="12" height="12" rx="2" fill="${col}" fill-opacity="0.5" stroke="${LEVEL_BORDERS[lvl]}" stroke-width="1.2"/>`;
-        svg += `<text x="${lx+16}" y="${cy+5}" fill="#e4ecf8" font-size="9" font-family="sans-serif">${lbl}</text>`;
-      });
-      svg += '</svg>';
-
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      const blob = new Blob([svg], { type: 'image/svg+xml' });
-      const url = URL.createObjectURL(blob);
-      const img = new Image();
-      img.onload = () => {
-        ctx.drawImage(img, 0, 0);
-        URL.revokeObjectURL(url);
-        canvas.toBlob(pngBlob => {
-          const a = document.createElement('a');
-          a.download = `meteocap_${new Date().toISOString().slice(0,10)}.png`;
-          a.href = URL.createObjectURL(pngBlob);
-          a.click(); URL.revokeObjectURL(a.href);
-          setExporting(false);
-        }, 'image/png');
-      };
-      img.onerror = () => setExporting(false);
-      img.src = url;
-    } catch(e) { console.error(e); setExporting(false); }
-  }, [warnings, filterStatus, labelMode, phenomenaConfig]);
   const activeCount  = warnings.filter(w => isActiveWarning(w)).length;
   const pendingCount = warnings.filter(w => w.status === 'pending' && isActiveWarning(w)).length;
 
@@ -542,8 +430,132 @@ export default function StatusView({ warnings, onRefresh, onEdit }) {
 
       {/* Lista ostrzeżeń — kompaktowa */}
       {warnings.length === 0 && (
-        <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+        <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, flexShrink: 0 }}>
           Brak ostrzeżeń do wyświetlenia
+        </div>
+      )}
+
+      {/* Sekcja MeteoAlarm — kraje ościenne, stały panel na dole */}
+      {maEnabled && (
+        <div style={{
+          borderTop: '1px solid var(--border)',
+          flexShrink: 0,
+          maxHeight: 220,
+          overflowY: 'auto',
+          padding: '8px 14px 8px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em' }}>
+              🌍 METEOALARM — KRAJE OŚCIENNE
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {maLastFetch && (
+                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                  {maLastFetch.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+              {onRefreshMa && (
+                <button onClick={onRefreshMa} disabled={maLoading}
+                  style={{ background: 'none', border: 'none', color: 'var(--accent-blue)',
+                    cursor: 'pointer', fontSize: 13, padding: '2px 4px' }}
+                  title="Odśwież MeteoAlarm">
+                  {maLoading ? '⟳' : '↻'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {maWarnings.length === 0 && !maLoading && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 0 8px' }}>
+              Brak aktywnych ostrzeżeń w krajach ościennych
+            </div>
+          )}
+
+          {/* Grupuj per kraj */}
+          {(() => {
+            const MA_LEVEL_COLORS = { 1: '#facc15', 2: '#f97316', 3: '#ef4444' };
+            const MA_LEVEL_BORDERS = { 1: '#a16207', 2: '#9a3412', 3: '#7f1d1d' };
+            const byCountry = {};
+            maWarnings.forEach(w => {
+              const k = w.country;
+              if (!byCountry[k]) byCountry[k] = { name: w.country_name, flag: w.country_flag || '', warnings: [] };
+              byCountry[k].warnings.push(w);
+            });
+            // Sortuj: najpierw kraje z najwyższym stopniem
+            const sorted = Object.entries(byCountry).sort((a, b) => {
+              const maxA = Math.max(...a[1].warnings.map(w => w.level));
+              const maxB = Math.max(...b[1].warnings.map(w => w.level));
+              return maxB - maxA;
+            });
+
+            return sorted.map(([code, { name, flag, warnings: cw }]) => {
+              // Sortuj ostrzeżenia per kraj: poziom malejąco
+              const sorted_cw = [...cw].sort((a, b) => b.level - a.level);
+              return (
+                <div key={code} style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)',
+                    marginBottom: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span>{flag}</span><span>{name}</span>
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 400 }}>
+                      ({sorted_cw.length} ostrzeż.)
+                    </span>
+                    {cw[0]?.political_caution && (
+                      <span style={{ fontSize: 9, color: '#9ca3af' }} title={cw[0].source_note}>⚠ poza EUMETNET</span>
+                    )}
+                  </div>
+                  {sorted_cw.map((w, i) => {
+                    const color  = MA_LEVEL_COLORS[w.level] || '#facc15';
+                    const border = MA_LEVEL_BORDERS[w.level] || '#a16207';
+                    const fmtTime = iso => iso
+                      ? new Date(iso).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+                      : '—';
+                    return (
+                      <div key={w.id || i} style={{
+                        display: 'flex', gap: 8, alignItems: 'flex-start',
+                        padding: '5px 8px', marginBottom: 3,
+                        background: 'var(--bg-base)', borderRadius: 5,
+                        borderLeft: `3px solid ${color}`,
+                      }}>
+                        {/* Poziom */}
+                        <div style={{
+                          background: color, color: w.level >= 3 ? '#fff' : '#111',
+                          borderRadius: 4, padding: '1px 5px', fontSize: 10,
+                          fontWeight: 700, flexShrink: 0, alignSelf: 'flex-start', marginTop: 1,
+                        }}>
+                          St.{w.level}
+                        </div>
+                        {/* Treść */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-primary)',
+                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {w.event || w.headline || w.phenomenon}
+                          </div>
+                          {w.area_desc && (
+                            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1,
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                              title={w.area_desc}>
+                              📍 {w.area_desc}
+                            </div>
+                          )}
+                          {(w.onset || w.expires) && (
+                            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>
+                              {w.onset ? `od ${fmtTime(w.onset)}` : ''}
+                              {w.expires ? ` · do ${fmtTime(w.expires)}` : ''}
+                            </div>
+                          )}
+                          {w.severity && (
+                            <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 1, fontStyle: 'italic' }}>
+                              {w.severity}{w.certainty ? ` · ${w.certainty}` : ''}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            });
+          })()}
         </div>
       )}
 

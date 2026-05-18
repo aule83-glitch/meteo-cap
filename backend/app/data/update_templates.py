@@ -100,9 +100,9 @@ UPDATE_TEMPLATES = {
     "burze": {
         "amend": "Aktualizacja prognozy burz: opady do {rain_mm} mm, porywy do {gust_kmh} km/h.",
         "escalate": (
-            "Aktywność burzowa nasila się. Obserwowane dotychczas {observed_value} mm opadu. "
-            "W pozostałym okresie prognozuje się jeszcze do {forecast_value} mm oraz porywy "
-            "wiatru do {gust_kmh} km/h."
+            "Aktywność burzowa nasila się. Prognozowane parametry: "
+            "porywy wiatru do {gust_kmh} km/h, opady do {rain_mm} mm w krótkim czasie"
+            "{hail_cm_part}. Stopień ostrzeżenia podniesiono z {old_level} na {new_level}."
         ),
         "deescalate": "Aktywność burzowa słabnie. W pozostałym okresie ostrzeżenia możliwe jeszcze pojedyncze burze.",
         "extend": "Aktywność burzowa utrzyma się dłużej. Ważność ostrzeżenia przedłużono do {expires}.",
@@ -227,9 +227,17 @@ def render_template(template: str, ctx: dict) -> str:
     """
     Bezpieczne podstawienie zmiennych w szablonie. 
     Brakujące zmienne stają się '—'.
+    Zmienne wyliczone automatycznie:
+    - {hail_cm_part} — ", grad do X cm" jeśli hail_cm > 0, inaczej pusty string
     """
     import re
     safe = {k: (str(v) if v is not None else "—") for k, v in ctx.items()}
+    # Auto: hail_cm_part
+    hail = ctx.get("hail_cm")
+    if hail and str(hail) not in ("0", "—", ""):
+        safe["hail_cm_part"] = f", grad do {hail} cm"
+    else:
+        safe["hail_cm_part"] = ""
     try:
         return template.format(**safe)
     except (KeyError, ValueError):

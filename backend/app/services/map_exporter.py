@@ -96,22 +96,81 @@ def _load_json(name: str) -> dict:
         return json.load(f)
 
 
+def _format_synthesis(active_warnings: list) -> list:
+    """Buduje syntezę: per zjawisko liczba ostrzeżeń + powiatów, oraz lista województw
+    jeśli ≤3, w przeciwnym razie tylko "X województw"."""
+    by_phen = {}
+    for w in active_warnings:
+        ph = w.get("phenomenon", "inne")
+        if ph not in by_phen:
+            by_phen[ph] = {"count": 0, "max_level": 0, "voivs": set(), "county_ids": set()}
+        by_phen[ph]["count"] += 1
+        by_phen[ph]["max_level"] = max(by_phen[ph]["max_level"], w.get("level", 1))
+        for c in w.get("counties", []):
+            vn = c.get("voiv_name", "")
+            if vn:
+                by_phen[ph]["voivs"].add(vn)
+            cid = c.get("id", "")
+            if cid:
+                by_phen[ph]["county_ids"].add(cid)
+
+    lines = []
+    # Sortuj po max_level malejąco
+    for ph, info in sorted(by_phen.items(), key=lambda x: -x[1]["max_level"]):
+        label = PHENOMENON_LABELS.get(ph, ph.replace("_", " "))
+        icon = PHENOMENON_ICONS.get(ph, "⚠")
+        ncp = len(info["county_ids"])
+        nv = len(info["voivs"])
+
+        # Obszar — heurystyka C-z-B-fallbackiem
+        if nv >= 14:
+            area_text = "cała Polska"
+        elif nv <= 3:
+            # Wymień województwa małymi literami
+            voivs_sorted = sorted(v.lower() for v in info["voivs"])
+            area_text = "woj. " + ", ".join(voivs_sorted)
+        else:
+            area_text = f"{nv} województw, {ncp} powiatów"
+
+        lines.append({
+            "icon": icon,
+            "label": label,
+            "level": info["max_level"],
+            "count": info["count"],
+            "ncp": ncp,
+            "area": area_text,
+        })
+    return lines
+
+
 def generate_warning_svg(
     warnings: list,
     width: int = 1200,
-    height: int = 900,
-    show_grid: bool = True,
-    title: str = "Mapa ostrzeżeń meteorologicznych — IMGW-PIB",
+    height: int = 1000,
+    show_grid: bool = False,
+    title: str = "Ostrzeżenia meteorologiczne — IMGW-PIB",
     generated_at: Optional[str] = None,
 ) -> str:
     """
-    Generuje SVG z mapą ostrzeżeń.
-    
+    Generuje SVG z metryczką ostrzeżeń (styl IMGW hydro/meteo):
+      - Pasek nagłówka z tytułem, datą, logo
+      - Mapa Polski z zakolorowanymi powiatami + labelkami cluster-based
+      - Stopka z syntezą per zjawisko (małe litery w nazwach woj.)
+
     warnings: lista dict z polami phenomenon, level, counties, onset, expires, status
     Zwraca: string SVG
     """
-    proj = MapProjection(width, height, margin=50)
-    now_str = generated_at or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    # Layout sections
+    HEADER_H = 80
+    MAP_H = 700
+    FOOTER_H = height - HEADER_H - MAP_H  # ~220px na syntezę
+    MAP_Y = HEADER_H
+
+    proj = MapProjection(width, MAP_H, margin=30)
+    # Offset projekcji — przesuwamy współrzędne y o HEADER_H
+    proj_y_offset = MAP_Y
+
+    now_str = generated_at or datetime.now().strftime("%d.%m.%Y · %H:%M")
 
     # Wczytaj dane geograficzne
     try:
@@ -123,23 +182,53 @@ def generate_warning_svg(
 
     lines = []
     lines.append(f'<svg xmlns="http://www.w3.org/2000/svg" '
-                 f'width="{width}" height="{height + 160}" '
-                 f'viewBox="0 0 {width} {height + 160}">')
+                 f'width="{width}" height="{height}" '
+                 f'viewBox="0 0 {width} {height}">')
 
     # Definicje
     lines.append('<defs>')
-    lines.append('  <filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.3"/></filter>')
-    for lvl, (fill, stroke) in LEVEL_COLORS.items():
-        lines.append(f'  <filter id="glow{lvl}"><feGaussianBlur stdDeviation="4" result="blur"/>'
-                     f'<feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>')
+    lines.append('  <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">'
+                 '<feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.25"/></filter>')
     lines.append('</defs>')
 
-    # Tło
-    lines.append(f'<rect width="{width}" height="{height + 160}" fill="#f8fafc"/>')
-    lines.append(f'<rect x="0" y="0" width="{width}" height="{height}" fill="#dce8f5"/>')
+    # === TŁO ===
+    lines.append(f'<rect width="{width}" height="{height}" fill="#ffffff"/>')
 
-    # --- Powiaty (szary podkład) ---
-    lines.append('<g id="counties-bg" fill="#e8eef6" stroke="#c8d4e8" stroke-width="0.3" opacity="0.8">')
+    # === HEADER ===
+    lines.append(f'<rect x="0" y="0" width="{width}" height="{HEADER_H}" fill="#1e3a5f"/>')
+    # Tytuł
+    lines.append(f'<text x="32" y="36" font-size="22" font-weight="bold" '
+                 f'fill="white" font-family="Arial,sans-serif">{title}</text>')
+    # Data
+    lines.append(f'<text x="32" y="62" font-size="13" '
+                 f'fill="rgba(255,255,255,0.85)" font-family="Arial,sans-serif">'
+                 f'<tspan fill="#fca5a5" font-weight="bold">Stan na</tspan>  {now_str}</text>')
+    # Liczba ostrzeżeń (prawy róg)
+    active_warnings = [w for w in warnings if w.get("status") in ("active", "pending")]
+    n_active = len(active_warnings)
+    lines.append(f'<text x="{width-32}" y="36" text-anchor="end" font-size="13" '
+                 f'fill="rgba(255,255,255,0.7)" font-family="Arial,sans-serif">'
+                 f'IMGW-PIB · MeteoCAP</text>')
+    lines.append(f'<text x="{width-32}" y="62" text-anchor="end" font-size="20" '
+                 f'font-weight="bold" fill="white" font-family="Arial,sans-serif">'
+                 f'Liczba aktywnych ostrzeżeń: {n_active}</text>')
+
+    # === OBSZAR MAPY ===
+    lines.append(f'<rect x="0" y="{MAP_Y}" width="{width}" height="{MAP_H}" fill="#f8fafc"/>')
+
+    # Override projekcji żeby uwzględnić MAP_Y
+    orig_project = proj.project
+    def project_offset(lon, lat):
+        x, y = orig_project(lon, lat)
+        return x, y + proj_y_offset
+    proj.project = project_offset
+
+    def geom_to_path_offset(geom):
+        return proj.geom_to_path(geom)
+    # geom_to_path używa proj.project — automatycznie z offsetem
+
+    # --- Wszystkie powiaty (jasne tło, bez dziur) ---
+    lines.append('<g id="counties-bg" fill="#eef2f7" stroke="#cbd5e1" stroke-width="0.4">')
     for feat in counties_data.get("features", []):
         geom = feat.get("geometry")
         if geom:
@@ -148,45 +237,40 @@ def generate_warning_svg(
                 lines.append(f'  <path d="{d}"/>')
     lines.append('</g>')
 
-    # --- Zbierz powiaty per ostrzeżenie (do podświetlenia i labelów) ---
-    # Mapuj id powiatu → geometria
-    county_geom_map = {}
+    # Mapa centroidów powiatów (do labelek)
     county_centroid_map = {}
     for feat in counties_data.get("features", []):
         props = feat.get("properties", {})
         cid = props.get("id", "")
         geom = feat.get("geometry")
         if cid and geom:
-            county_geom_map[cid] = geom
             ring = geom["coordinates"][0] if geom["type"] == "Polygon" else geom["coordinates"][0][0]
-            xs = [p[0] for p in ring]
-            ys = [p[1] for p in ring]
+            xs = [p[0] for p in ring]; ys = [p[1] for p in ring]
             county_centroid_map[cid] = (sum(xs)/len(xs), sum(ys)/len(ys))
 
-    # --- Ostrzeżenia — wypełnienie powiatów ---
-    active_warnings = [w for w in warnings if w.get("status") in ("active", "pending")]
-
-    for w in active_warnings:
+    # --- Powiaty z ostrzeżeniami — zakolorowane ---
+    # Posortuj po level rosnąco żeby wyższe (poważniejsze) były na wierzchu
+    for w in sorted(active_warnings, key=lambda x: x.get("level", 1)):
         lvl = w.get("level", 1)
         fill, stroke = LEVEL_COLORS.get(lvl, ("#facc15", "#78600a"))
-        opacity = "0.75" if w.get("status") == "active" else "0.4"
-        dash = "" if w.get("status") == "active" else 'stroke-dasharray="4,3"'
-        counties = w.get("counties", [])
-
-        lines.append(f'<g id="warning-{w.get("id","")[:8]}" '
-                     f'fill="{fill}" stroke="{stroke}" stroke-width="1.2" '
-                     f'fill-opacity="{opacity}" {dash}>')
-        for c in counties:
+        opacity = 0.85
+        lines.append(f'<g fill="{fill}" fill-opacity="{opacity}" '
+                     f'stroke="{stroke}" stroke-width="0.4">')
+        for c in w.get("counties", []):
             cid = c.get("id", "")
-            geom = county_geom_map.get(cid)
-            if geom:
-                d = proj.geom_to_path(geom)
-                if d:
-                    lines.append(f'  <path d="{d}"/>')
+            # Odszukaj geometrię w counties_data
+            for feat in counties_data.get("features", []):
+                if feat.get("properties", {}).get("id") == cid:
+                    geom = feat.get("geometry")
+                    if geom:
+                        d = proj.geom_to_path(geom)
+                        if d:
+                            lines.append(f'  <path d="{d}"/>')
+                    break
         lines.append('</g>')
 
-    # --- Województwa (kontury na wierzchu) ---
-    lines.append('<g id="voivodeships" fill="none" stroke="#4a6fa5" stroke-width="1.2" opacity="0.9">')
+    # --- Obrysy województw ---
+    lines.append('<g id="voivs" fill="none" stroke="#475569" stroke-width="1" opacity="0.6">')
     for feat in voiv_data.get("features", []):
         geom = feat.get("geometry")
         if geom:
@@ -195,175 +279,174 @@ def generate_warning_svg(
                 lines.append(f'  <path d="{d}"/>')
     lines.append('</g>')
 
-    # --- Obrys zewnętrzny Polski (gruba linia) ---
-    # Rysujemy ponownie wszystkie województwa jako jeden gruby obrys
-    lines.append('<g id="poland-border" fill="none" stroke="#1e3a5f" stroke-width="2.0" opacity="1.0">')
-    for feat in voiv_data.get("features", []):
-        geom = feat.get("geometry")
-        if geom:
-            d = proj.geom_to_path(geom)
-            if d:
-                lines.append(f'  <path d="{d}"/>')
-    lines.append('</g>')
-
-    # --- Siatka geograficzna ---
-    if show_grid:
-        lines.append('<g id="grid" stroke="#3b82f6" stroke-width="0.4" opacity="0.25" stroke-dasharray="3,5">')
-        for lon in range(15, 25):
-            x1, y1 = proj.project(lon, PL_LAT_MIN)
-            x2, y2 = proj.project(lon, PL_LAT_MAX)
-            lines.append(f'  <line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}"/>')
-            lines.append(f'  <text x="{x1}" y="{height-8}" '
-                         f'font-size="9" fill="#3b82f6" opacity="0.5" text-anchor="middle" '
-                         f'font-family="Arial,sans-serif">{lon}°E</text>')
-        for lat in range(50, 55):
-            x1, y1 = proj.project(PL_LON_MIN, lat)
-            x2, y2 = proj.project(PL_LON_MAX, lat)
-            lines.append(f'  <line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}"/>')
-            lines.append(f'  <text x="8" y="{y1+4}" '
-                         f'font-size="9" fill="#3b82f6" opacity="0.5" '
-                         f'font-family="Arial,sans-serif">{lat}°N</text>')
-        lines.append('</g>')
-
-    # --- Agregowane labele — jeden per ostrzeżenie na centroidzie obszaru ---
-    lines.append('<g id="warning-labels">')
+    # --- Cluster-based labelki (B1) ---
+    # Strategia: dla każdego ostrzeżenia wyznacz centroid. Następnie połącz w klastry
+    # ostrzeżenia których centroidy są bliżej niż 80px.
+    label_candidates = []
     for w in active_warnings:
-        lvl = w.get("level", 1)
-        fill, stroke = LEVEL_COLORS.get(lvl, ("#facc15", "#78600a"))
-        ph = w.get("phenomenon", "")
-        icon = PHENOMENON_ICONS.get(ph, "⚠")
-        label_text = PHENOMENON_LABELS.get(ph, ph.replace("_", " "))
         counties = w.get("counties", [])
         if not counties:
             continue
-
-        # Centroid obszaru ostrzeżenia (średnia centroidów powiatów)
         lons, lats = [], []
         for c in counties:
             cid = c.get("id", "")
             if cid in county_centroid_map:
                 clon, clat = county_centroid_map[cid]
-            else:
-                clon = c.get("lon", 0)
-                clat = c.get("lat", 0)
-            if clon and clat:
-                lons.append(clon)
-                lats.append(clat)
-
+                lons.append(clon); lats.append(clat)
         if not lons:
             continue
-
         cx, cy = proj.project(sum(lons)/len(lons), sum(lats)/len(lats))
+        label_candidates.append({"w": w, "cx": cx, "cy": cy})
 
-        # Box z etykietą
-        box_w, box_h = 90, 32
-        bx, by = cx - box_w/2, cy - box_h/2
+    # Cluster — group label_candidates by proximity
+    CLUSTER_PX = 70
+    used = [False] * len(label_candidates)
+    clusters = []
+    for i, lc in enumerate(label_candidates):
+        if used[i]: continue
+        group = [lc]; used[i] = True
+        for j, lc2 in enumerate(label_candidates):
+            if used[j]: continue
+            d = ((lc["cx"] - lc2["cx"])**2 + (lc["cy"] - lc2["cy"])**2) ** 0.5
+            if d < CLUSTER_PX:
+                group.append(lc2); used[j] = True
+        # Centroid klastra
+        ccx = sum(g["cx"] for g in group) / len(group)
+        ccy = sum(g["cy"] for g in group) / len(group)
+        # Top warning klastra (najwyższy level)
+        top_w = max((g["w"] for g in group), key=lambda x: x.get("level", 1))
+        clusters.append({"cx": ccx, "cy": ccy, "top_w": top_w, "count": len(group)})
 
-        status_marker = "" if w.get("status") == "active" else " (nadch.)"
-        full_label = f"St.{lvl} {label_text}{status_marker}"
+    # Dodge — rozsuń klastry które są nadal blisko
+    for _ in range(3):
+        moved = False
+        for i in range(len(clusters)):
+            for j in range(i):
+                dx = clusters[i]["cx"] - clusters[j]["cx"]
+                dy = clusters[i]["cy"] - clusters[j]["cy"]
+                d = (dx*dx + dy*dy) ** 0.5
+                if d < CLUSTER_PX * 1.2 and d > 0:
+                    push = (CLUSTER_PX * 1.2 - d) / 2
+                    ux, uy = dx/d, dy/d
+                    clusters[i]["cx"] += ux * push
+                    clusters[i]["cy"] += uy * push
+                    clusters[j]["cx"] -= ux * push
+                    clusters[j]["cy"] -= uy * push
+                    moved = True
+        if not moved: break
 
+    # Renderuj labelki klastrów (styl jak w Status: kolorowy box, ikona + tekst)
+    lines.append('<g id="warning-labels">')
+    for cl in clusters:
+        w = cl["top_w"]
+        lvl = w.get("level", 1)
+        fill, stroke = LEVEL_COLORS.get(lvl, ("#facc15", "#78600a"))
+        ph = w.get("phenomenon", "")
+        icon = PHENOMENON_ICONS.get(ph, "⚠")
+        label_text = PHENOMENON_LABELS.get(ph, ph.replace("_", " "))
+        # Cluster z >1 ostrzeżeniem — pokaż licznik
+        count_suffix = f" (+{cl['count']-1})" if cl['count'] > 1 else ""
+        text = f"St.{lvl} {label_text}{count_suffix}"
+        # Szacuj szerokość boxa
+        box_w = max(75, len(text) * 6.5 + 24)
+        box_h = 24
+        bx = cl["cx"] - box_w/2; by = cl["cy"] - box_h/2
         lines.append(
-            f'<rect x="{bx:.1f}" y="{by:.1f}" width="{box_w}" height="{box_h}" '
-            f'rx="4" fill="{fill}" fill-opacity="0.92" '
+            f'<rect x="{bx:.1f}" y="{by:.1f}" width="{box_w:.1f}" height="{box_h}" '
+            f'rx="4" fill="{fill}" fill-opacity="0.95" '
             f'stroke="{stroke}" stroke-width="1.5" filter="url(#shadow)"/>'
         )
+        # Ikona po lewej, tekst dalej
         lines.append(
-            f'<text x="{cx:.1f}" y="{cy-6:.1f}" text-anchor="middle" '
-            f'font-size="11" font-weight="bold" fill="{stroke}" '
-            f'font-family="Arial,sans-serif">{icon} {full_label}</text>'
+            f'<text x="{bx+8:.1f}" y="{cl["cy"]+5:.1f}" '
+            f'font-size="14" font-family="Arial,sans-serif">{icon}</text>'
         )
-        # Liczba powiatów
         lines.append(
-            f'<text x="{cx:.1f}" y="{cy+8:.1f}" text-anchor="middle" '
-            f'font-size="9" fill="{stroke}" opacity="0.8" '
-            f'font-family="Arial,sans-serif">{len(counties)} powiat{"ów" if len(counties)!=1 else ""}</text>'
+            f'<text x="{bx+28:.1f}" y="{cl["cy"]+5:.1f}" '
+            f'font-size="11" font-weight="bold" fill="{stroke}" '
+            f'font-family="Arial,sans-serif">{text}</text>'
         )
     lines.append('</g>')
 
-    # === SEKCJA PODSUMOWANIA (pod mapą) ===
-    summary_y = height + 8
-    lines.append(f'<rect x="0" y="{height}" width="{width}" height="160" fill="#1e3a5f"/>')
+    # === FOOTER — SYNTEZA ===
+    F_Y = HEADER_H + MAP_H
+    lines.append(f'<rect x="0" y="{F_Y}" width="{width}" height="{FOOTER_H}" fill="#1e3a5f"/>')
 
-    # Tytuł
-    lines.append(f'<text x="{width//2}" y="{summary_y+24}" text-anchor="middle" '
-                 f'font-size="16" font-weight="bold" fill="white" '
-                 f'font-family="Arial,sans-serif">{title}</text>')
-
-    # Linia oddzielająca
-    lines.append(f'<line x1="40" y1="{summary_y+34}" x2="{width-40}" y2="{summary_y+34}" '
-                 f'stroke="rgba(255,255,255,0.3)" stroke-width="1"/>')
-
-    # Treść podsumowania — ostrzeżenia
     if active_warnings:
-        col_w = (width - 80) // min(len(active_warnings), 4)
-        for i, w in enumerate(active_warnings[:4]):
-            col_x = 40 + i * col_w
-            lvl = w.get("level", 1)
-            fill, _ = LEVEL_COLORS.get(lvl, ("#facc15", "#78600a"))
-            ph = w.get("phenomenon", "")
-            icon = PHENOMENON_ICONS.get(ph, "⚠")
-            label = PHENOMENON_LABELS.get(ph, ph)
-            counties = w.get("counties", [])
+        synthesis = _format_synthesis(active_warnings)
+        # Tytuł sekcji
+        lines.append(f'<text x="32" y="{F_Y+30}" font-size="14" font-weight="bold" '
+                     f'fill="rgba(255,255,255,0.7)" font-family="Arial,sans-serif" '
+                     f'letter-spacing="1.5">SYNTEZA OSTRZEŻEŃ</text>')
+        # Linia
+        lines.append(f'<line x1="32" y1="{F_Y+40}" x2="{width-32}" y2="{F_Y+40}" '
+                     f'stroke="rgba(255,255,255,0.2)" stroke-width="1"/>')
 
-            # Grupuj powiaty per województwo
-            voiv_groups: dict = {}
-            for c in counties:
-                vn = c.get("voiv_name", "Nieznane")
-                voiv_groups.setdefault(vn, 0)
-                voiv_groups[vn] += 1
+        # Każde zjawisko jako linia
+        max_rows = min(len(synthesis), 6)
+        row_h = (FOOTER_H - 90) // max(max_rows, 1)
+        for i, s in enumerate(synthesis[:6]):
+            y = F_Y + 60 + i * row_h
+            fill, stroke = LEVEL_COLORS.get(s["level"], ("#facc15", "#78600a"))
+            # Lewy: kolorowy znacznik
+            lines.append(f'<rect x="32" y="{y-12}" width="6" height="20" rx="2" fill="{fill}"/>')
+            # Ikona + nazwa zjawiska
+            lines.append(f'<text x="48" y="{y+4}" font-size="14" '
+                         f'font-family="Arial,sans-serif">{s["icon"]}</text>')
+            lines.append(f'<text x="72" y="{y+4}" font-size="13" font-weight="bold" '
+                         f'fill="white" font-family="Arial,sans-serif">'
+                         f'{s["label"]} <tspan fill="{fill}">· stopień {s["level"]}</tspan></text>')
+            # Po prawej: licznik powiatów + obszar
+            lines.append(f'<text x="{width-32}" y="{y+4}" text-anchor="end" font-size="12" '
+                         f'fill="rgba(255,255,255,0.85)" font-family="Arial,sans-serif">'
+                         f'{s["ncp"]} powiat{"ów" if s["ncp"]!=1 else ""} · {s["area"]}</text>')
 
-            # Sprawdź czy to cała Polska
-            if len(voiv_groups) >= 14:
-                area_text = "Cała Polska"
-            elif len(voiv_groups) == 1:
-                vn, cnt = list(voiv_groups.items())[0]
-                area_text = f"woj. {vn} ({cnt} pow.)"
-            else:
-                voiv_list = ", ".join(vn[:8] for vn in sorted(voiv_groups.keys())[:3])
-                if len(voiv_groups) > 3:
-                    voiv_list += f" +{len(voiv_groups)-3}"
-                area_text = voiv_list
-
-            # Czas
-            try:
-                onset_dt = datetime.fromisoformat(w.get("onset","").replace("Z","+00:00"))
-                expires_dt = datetime.fromisoformat(w.get("expires","").replace("Z","+00:00"))
-                time_text = (f"{onset_dt.strftime('%d.%m %H:%M')} – "
-                             f"{expires_dt.strftime('%d.%m %H:%M')} UTC")
-            except Exception:
-                time_text = "—"
-
-            status_color = "#22c55e" if w.get("status") == "active" else "#3b82f6"
-            status_label = "● Aktywne" if w.get("status") == "active" else "○ Nadchodzące"
-
-            # Blok ostrzeżenia
-            lines.append(f'<rect x="{col_x}" y="{summary_y+42}" width="{col_w-10}" height="100" '
-                         f'rx="4" fill="{fill}" fill-opacity="0.15" '
-                         f'stroke="{fill}" stroke-width="1" stroke-opacity="0.5"/>')
-            ry = summary_y + 60
-            lines.append(f'<text x="{col_x+8}" y="{ry}" font-size="13" font-weight="bold" '
-                         f'fill="{fill}" font-family="Arial,sans-serif">{icon} {label}</text>')
-            ry += 16
-            lines.append(f'<text x="{col_x+8}" y="{ry}" font-size="10" fill="white" opacity="0.9" '
-                         f'font-family="Arial,sans-serif">Stopień {lvl} · {status_label}</text>')
-            ry += 14
-            lines.append(f'<text x="{col_x+8}" y="{ry}" font-size="9" fill="white" opacity="0.7" '
-                         f'font-family="Arial,sans-serif">{area_text}</text>')
-            ry += 13
-            lines.append(f'<text x="{col_x+8}" y="{ry}" font-size="9" fill="white" opacity="0.6" '
-                         f'font-family="Arial,sans-serif">{time_text}</text>')
+        if len(synthesis) > 6:
+            y = F_Y + 60 + 6 * row_h
+            lines.append(f'<text x="48" y="{y+4}" font-size="11" '
+                         f'fill="rgba(255,255,255,0.6)" font-family="Arial,sans-serif" '
+                         f'font-style="italic">+ {len(synthesis)-6} innych zjawisk</text>')
     else:
-        lines.append(f'<text x="{width//2}" y="{summary_y+80}" text-anchor="middle" '
-                     f'font-size="14" fill="rgba(255,255,255,0.6)" '
+        lines.append(f'<text x="{width//2}" y="{F_Y+FOOTER_H//2}" text-anchor="middle" '
+                     f'font-size="16" fill="rgba(255,255,255,0.6)" '
                      f'font-family="Arial,sans-serif">Brak aktywnych ostrzeżeń</text>')
 
-    # Stopka
-    lines.append(f'<text x="40" y="{summary_y+152}" font-size="9" fill="rgba(255,255,255,0.5)" '
-                 f'font-family="Arial,sans-serif">Stan na: {now_str} · '
-                 f'IMGW-PIB Centrum Modelowania Meteorologicznego · MeteoCAP Editor</text>')
-    lines.append(f'<text x="{width-40}" y="{summary_y+152}" text-anchor="end" '
-                 f'font-size="9" fill="rgba(255,255,255,0.5)" '
-                 f'font-family="Arial,sans-serif">© GUGiK PRG</text>')
+    # Stopka — legenda + źródło
+    leg_y = height - 18
+    legend_items = [(1, "Stopień 1"), (2, "Stopień 2"), (3, "Stopień 3")]
+    lx = 32
+    for lvl, lbl in legend_items:
+        fill, _ = LEVEL_COLORS[lvl]
+        lines.append(f'<rect x="{lx}" y="{leg_y-9}" width="12" height="12" rx="2" fill="{fill}"/>')
+        lines.append(f'<text x="{lx+18}" y="{leg_y}" font-size="10" '
+                     f'fill="rgba(255,255,255,0.7)" font-family="Arial,sans-serif">{lbl}</text>')
+        lx += 95
+    lines.append(f'<text x="{width-32}" y="{leg_y}" text-anchor="end" font-size="10" '
+                 f'fill="rgba(255,255,255,0.5)" font-family="Arial,sans-serif">'
+                 f'© IMGW-PIB · dane GUGiK PRG</text>')
 
     lines.append('</svg>')
     return "\n".join(lines)
+
+
+def generate_warning_png(warnings: list, width: int = 1200, height: int = 1000) -> bytes:
+    """Renderuje metryczkę SVG do PNG (przez reportlab renderPM + svglib lub fallback).
+    Zwraca bajty PNG."""
+    svg = generate_warning_svg(warnings, width=width, height=height)
+    # Próbujemy svglib → reportlab → PNG
+    try:
+        from svglib.svglib import svg2rlg
+        from reportlab.graphics import renderPM
+        import io
+        rlg = svg2rlg(io.StringIO(svg))
+        png_bytes = io.BytesIO()
+        renderPM.drawToFile(rlg, png_bytes, fmt="PNG", dpi=120)
+        return png_bytes.getvalue()
+    except ImportError:
+        # Fallback: cairosvg
+        try:
+            import cairosvg
+            return cairosvg.svg2png(bytestring=svg.encode("utf-8"),
+                                    output_width=width, output_height=height)
+        except ImportError:
+            return None

@@ -934,3 +934,38 @@ input[type="checkbox"] {
 .leaflet-draw-toolbar a:hover {
   background: var(--bg-hover) !important;
 }
+
+/* MeteoAlarm — kółka z emoji + hover-expand */
+.ma-wm-marker {
+  background: transparent !important;
+  border: none !important;
+}
+.ma-wm-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  cursor: default;
+}
+.ma-wm-wrap:hover {
+  opacity: 1 !important;
+}
+.ma-wm-wrap:hover .ma-wm-dot {
+  border-radius: 50% 0 0 50% !important;
+}
+.ma-wm-wrap:hover .ma-wm-label {
+  max-width: 180px !important;
+  opacity: 1 !important;
+  padding: 0 8px 0 6px !important;
+}
+
+/* Label ostrzeżeń PL — Leaflet nie może nadpisać display */
+.ma-warn-label {
+  background: transparent !important;
+  border: none !important;
+}
+.ma-warn-label > div {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  white-space: nowrap !important;
+}

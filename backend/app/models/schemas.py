@@ -46,6 +46,7 @@ class WarningDB(WarningCreate):
     cap_xml: Optional[str] = None
     # Status derived fields
     status: str = "pending"   # pending | active | expired | cancelled | updated
+    is_published: bool = False  # True = CAP wysłany, PDF egenerowany, w historii; False = draft w edytorze
 
 
 class LevelCheckRequest(BaseModel):
