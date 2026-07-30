@@ -528,6 +528,15 @@ URGENCY_MAP = {
     3: "Immediate",
 }
 
+# Mapowanie likelihood (ocena synoptyka) -> CAP certainty
+# Konwencja CAP 1.2: Likely = p > ~50%, Possible = p <= ~50%, Observed = zjawisko trwa.
+# Pokrywa sie ze schematem czeskim (>50% / <50% / obserwowane).
+CERTAINTY_MAP = {
+    "observed": "Observed",
+    "likely":   "Likely",
+    "possible": "Possible",
+}
+
 # Kolory ostrzeżeń
 COLOR_MAP = {
     1: "yellow",

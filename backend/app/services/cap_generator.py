@@ -11,7 +11,7 @@ from xml.dom.minidom import parseString
 
 from app.data.warning_texts import (
     WARNING_CONFIG, AWARENESS_LEVEL_MAP,
-    SEVERITY_MAP, URGENCY_MAP, COLOR_MAP, COLOR_PL, COLOR_EN
+    SEVERITY_MAP, URGENCY_MAP, CERTAINTY_MAP, COLOR_MAP, COLOR_PL, COLOR_EN
 )
 
 OID_PREFIX = "2.49.0.0.616.0.PL"
@@ -154,6 +154,7 @@ def _build_cap_xml(warning: dict, counties_override=None) -> str:
 
     severity = SEVERITY_MAP.get(level, "Minor")
     urgency  = URGENCY_MAP.get(level, "Expected")
+    certainty = CERTAINTY_MAP.get((warning.get("likelihood") or "likely").lower(), "Likely")
     awareness_level = AWARENESS_LEVEL_MAP.get(level, "2; yellow; Moderate")
 
     # Buduj references string jeśli to Update/Cancel
@@ -187,7 +188,7 @@ def _build_cap_xml(warning: dict, counties_override=None) -> str:
         _sub(info, "responseType", "None")
         _sub(info, "urgency", urgency)
         _sub(info, "severity", severity)
-        _sub(info, "certainty", "Likely")
+        _sub(info, "certainty", certainty)
         _sub(info, "effective", sent_str)
         _sub(info, "onset", onset)
         _sub(info, "expires", expires)
@@ -228,6 +229,49 @@ def _build_cap_xml(warning: dict, counties_override=None) -> str:
     return parseString(raw).toprettyxml(indent="  ", encoding=None)
 
 
+def _simplify_polygon(points, max_vertices=20):
+    """Upraszcza poligon do <= max_vertices wierzchołków (Douglas-Peucker).
+    MeteoAlarm/CAP zaleca poligony poniżej 20 wierzchołków — odręcznie rysowane
+    obszary mają ich często setki, co psuje walidację i puchnie XML.
+    Zachowuje domknięcie (pierwszy punkt == ostatni)."""
+    if not points or len(points) <= max_vertices:
+        return points
+    closed = len(points) > 1 and points[0] == points[-1]
+    pts = points[:-1] if closed else points[:]
+
+    def _perp_dist(p, a, b):
+        (py, px), (ay, ax), (by, bx) = p, a, b
+        dy, dx = by - ay, bx - ax
+        if dy == 0 and dx == 0:
+            return ((py - ay) ** 2 + (px - ax) ** 2) ** 0.5
+        t = max(0.0, min(1.0, ((py - ay) * dy + (px - ax) * dx) / (dy * dy + dx * dx)))
+        return ((py - (ay + t * dy)) ** 2 + (px - (ax + t * dx)) ** 2) ** 0.5
+
+    def _dp(seq, eps):
+        if len(seq) < 3:
+            return seq
+        idx, dmax = 0, 0.0
+        for i in range(1, len(seq) - 1):
+            d = _perp_dist(seq[i], seq[0], seq[-1])
+            if d > dmax:
+                idx, dmax = i, d
+        if dmax <= eps:
+            return [seq[0], seq[-1]]
+        return _dp(seq[:idx + 1], eps)[:-1] + _dp(seq[idx:], eps)
+
+    # dobierz tolerancję iteracyjnie, aż zmieści się w limicie
+    eps = 0.005
+    out = pts
+    for _ in range(40):
+        out = _dp(pts, eps)
+        if len(out) <= (max_vertices - 1 if closed else max_vertices):
+            break
+        eps *= 1.6
+    if closed:
+        out = out + [out[0]]
+    return out
+
+
 def _build_area(info, area_desc, counties, polygon, emma_ids):
     """
     Buduje bloki <area> zgodnie ze standardem CAP 1.2.
@@ -238,7 +282,8 @@ def _build_area(info, area_desc, counties, polygon, emma_ids):
         area = SubElement(info, "area")
         _sub(area, "areaDesc", area_desc)
         if polygon and len(polygon) >= 3:
-            poly_str = " ".join(f"{lat},{lon}" for lat, lon in polygon)
+            poly = _simplify_polygon([tuple(pt) for pt in polygon])
+            poly_str = " ".join(f"{lat},{lon}" for lat, lon in poly)
             _sub(area, "polygon", poly_str)
         return
 

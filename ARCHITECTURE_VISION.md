@@ -1,7 +1,38 @@
 # IMGW-OSMET — Architektura systemu trójwarstwowego
-*Dokument projektowy v0.3 — 2026-05-10*
-*Status: do dyskusji, nie do wdrożenia*
+
+*Dokument projektowy v0.4 — przegląd 2026-07-31 (stan kodu: v2.5.33)*
+*Status: kierunek przyjęty, wdrożenie częściowe — patrz „Stan realizacji" niżej*
 *v0.3: reforma PrONieb, spójność CAP, podejście do nowcastingu*
+*v0.4: zestawienie z pracą operacyjną i planem etapów w `ROADMAP.md`*
+
+---
+
+## 0. Stan realizacji (przegląd lipiec 2026)
+
+Dokument powstał w maju jako koncepcja. Po kilku miesiącach pracy operacyjnej część
+założeń została potwierdzona, część uściślona przez praktykę.
+
+**Potwierdzone i wdrożone:**
+- Jeden model danych dla wszystkich typów ostrzeżeń — zrealizowane
+- Prawdopodobieństwo jako pole pierwszej klasy → CAP `certainty` (schemat CHMI) — zrealizowane
+- Miękkie okna czasowe zamiast sztywnych dób — zrealizowane; reguła nakładania (409)
+  dopuszcza sekwencje ze stykającymi się oknami
+- Wspólny edytor dla wszystkich typów, bez osobnych ekranów per typ — zrealizowane
+
+**Potwierdzone, niewdrożone (w `ROADMAP.md` jako etapy 4–5):**
+- Nowcast jako **propozycja**, nie automatyczny alert — pozostaje słuszne;
+  odpowiada temu „skrzynka propozycji" (C3) z modelem DWD: ASG proponuje, ASE zatwierdza
+- Early Warning jako pełnoprawna warstwa CAP — kierunek bez zmian
+
+**Uściślone przez praktykę — nowe względem v0.3:**
+- Największym wąskim gardłem okazało się **autorstwo obszaru**, nie typologia ostrzeżeń.
+  Stąd priorytet dla modelu konturowego (C1): synoptyk rysuje strefy zdarzenia,
+  system rzutuje je na powiaty. To zmiana głębsza niż reforma PrONieb i powinna ją poprzedzać.
+- **Rytm czasowy jest cechą zjawiska**, nie systemu: upał ma naturalny rytm dobowy,
+  opad ciągły nie. Zamiast jednej reguły dla wszystkiego — domyślny rytm per zjawisko
+  z możliwością nadpisania (C2).
+- Powiat pozostaje **jednostką dystrybucji** (mandat RCB/WCZK), poligon staje się
+  **warstwą autorską**. Model norweski (MET Norway): rysuje się kontur, geokody są pochodne.
 
 ---
 
@@ -301,3 +332,30 @@ Sprint 6:   NC — panel zatwierdzania, CAP NC (zewnętrzny)
 
 Każdy sprint = działająca funkcja, nie połowiczny system.
 EW przed NC — to ważniejsze i prostsze do wdrożenia.
+
+---
+
+## 11. Rewizja kolejności (lipiec 2026)
+
+Praca operacyjna zmieniła priorytety względem planu z maja. **Sprint 1 (reorganizacja
+edytora) rozrósł się** i pochłonął etapy 1–3 z `ROADMAP.md` — okazało się, że ergonomia
+i integralność danych blokowały wszystko inne.
+
+Kolejność obowiązująca:
+
+1. **Rozdzielenie zapisu roboczego od publikacji** (etap 2, część 2) — warunek konieczny
+   dla wszystkiego dalej: bez tego nie da się „odłożyć wszystkich stref zdarzenia,
+   potem opublikować".
+2. **Model konturowy** (etap 4, C1) — nowe autorstwo obszaru. To on, a nie typologia,
+   jest właściwą „warstwą B" projektu.
+3. **Skrzynka propozycji** (etap 5, C3 pkt 1) — najtańsza z wysokich dźwigni,
+   fundament pod nowcast i pod EW z modeli.
+4. **Early Warning** jako typ — dopiero gdy powyższe działa, bo EW korzysta
+   z tych samych mechanizmów (kontury, propozycje, publikacja zbiorcza).
+5. **Nowcast** — na końcu, zgodnie z pierwotnym założeniem.
+
+Uzasadnienie zmiany: punkty 1–3 zmniejszają wysiłek synoptyka przy **każdym** ostrzeżeniu,
+podczas gdy nowe typy (EW, NC) dokładają możliwości, ale nie usuwają tarcia.
+Analiza porównawcza z innymi służbami (dokument `IMGW-OSMET_analiza_uproszczenia_ostrzezen.md`)
+prowadzi do tego samego wniosku: DWD, SMHI i MET Norway najpierw uporządkowały autorstwo,
+dopiero potem rozbudowywały katalog produktów.

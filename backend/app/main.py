@@ -1,8 +1,9 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
-import json, uuid, os, zipfile, io
+import json, uuid, os, zipfile, io, threading, shutil
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import List, Optional
 
 from app.models.schemas import (
@@ -26,7 +27,11 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], allow_credentials=True,
+    allow_origins=[o.strip() for o in os.environ.get(
+        "OSMET_CORS_ORIGINS",
+        "http://localhost:3001,http://localhost:5173,http://127.0.0.1:3001"
+    ).split(",") if o.strip()],
+    allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
 )
 
@@ -52,17 +57,60 @@ async def api_key_middleware(request: _Request, call_next):
     return _JSONResponse(status_code=401, content={"error": "Unauthorized — brak lub błędny API key"})
 
 WARNINGS_DB: dict = {}
-STORAGE_FILE = "/data/warnings.json"
-
-def load_warnings():
-    if os.path.exists(STORAGE_FILE):
+# ── Wersja aplikacji: JEDNO źródło prawdy = plik VERSION w katalogu projektu ──
+def _read_app_version():
+    """Czyta VERSION z katalogu projektu (…/backend/app → 2 poziomy wyżej).
+    Koniec z wpisywaniem numeru w trzech miejscach i rozjazdami między nimi."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for up in (os.path.join(here, "..", ".."), os.path.join(here, ".."), here):
+        cand = os.path.abspath(os.path.join(up, "VERSION"))
         try:
-            with open(STORAGE_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return _migrate_to_v2_1(data)
+            if os.path.exists(cand):
+                v = open(cand, encoding="utf-8").read().strip()
+                if v:
+                    return v
         except Exception:
             pass
-    return {}
+    return os.environ.get("OSMET_VERSION", "dev")
+
+APP_VERSION = _read_app_version()
+
+# ── Katalog danych: konfigurowalny (Docker → /data, instalacja systemowa → env) ──
+DATA_DIR = os.environ.get("OSMET_DATA_DIR", "/data")
+
+def _data_path(name):
+    return os.path.join(DATA_DIR, name)
+
+STORAGE_FILE = _data_path("warnings.json")
+
+def load_warnings():
+    """Wczytaj bazę ostrzeżeń.
+    - brak pliku → pusta baza (pierwsze uruchomienie)
+    - plik uszkodzony → próba kopii .bak
+    - obie kopie uszkodzone → GŁOŚNA odmowa startu (nigdy cicha pusta baza,
+      bo najbliższy zapis utrwaliłby utratę wszystkich ostrzeżeń)
+    """
+    if not os.path.exists(STORAGE_FILE):
+        return {}
+    try:
+        with open(STORAGE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return _migrate_to_v2_1(data)
+    except Exception as e:
+        bak = STORAGE_FILE + ".bak"
+        if os.path.exists(bak):
+            try:
+                with open(bak, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                print(f"[STORAGE] ⚠ warnings.json uszkodzony ({e}) — wczytano kopię zapasową {bak}")
+                return _migrate_to_v2_1(data)
+            except Exception as e2:
+                raise RuntimeError(
+                    f"warnings.json uszkodzony ({e}) i kopia .bak też ({e2}). "
+                    f"Odmowa startu, żeby nie nadpisać danych — przywróć plik ręcznie.") from e2
+        raise RuntimeError(
+            f"warnings.json uszkodzony ({e}) i brak kopii .bak. "
+            f"Odmowa startu, żeby nie nadpisać danych — przywróć plik ręcznie.") from e
 
 def _migrate_to_v2_1(db: dict) -> dict:
     """
@@ -109,10 +157,24 @@ def _migrate_to_v2_1(db: dict) -> dict:
             else:                 w["operation_hint"] = "amend"
     return db
 
+_DB_LOCK = threading.Lock()  # serializuje zapisy bazy (FastAPI obsługuje sync-endpointy w puli wątków)
+
 def save_warnings():
-    os.makedirs("/data", exist_ok=True)
-    with open(STORAGE_FILE, "w", encoding="utf-8") as f:
-        json.dump(WARNINGS_DB, f, ensure_ascii=False, indent=2)
+    """Atomowy zapis bazy: tmp + fsync + os.replace, z kopią .bak poprzedniej wersji.
+    Crash/pełny dysk w trakcie zapisu nie może już uciąć warnings.json."""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with _DB_LOCK:
+        tmp = STORAGE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(WARNINGS_DB, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        if os.path.exists(STORAGE_FILE):
+            try:
+                shutil.copy2(STORAGE_FILE, STORAGE_FILE + ".bak")
+            except Exception:
+                pass  # brak kopii nie może blokować zapisu właściwego
+        os.replace(tmp, STORAGE_FILE)  # atomowe na tym samym systemie plików
 
 def _compute_status(w: dict) -> str:
     """Oblicz aktualny status ostrzeżenia na podstawie czasu i flag."""
@@ -141,7 +203,7 @@ WARNINGS_DB = load_warnings()
 
 @app.get("/")
 def root():
-    return {"status": "ok", "app": "IMGW-OSMET", "version": "2.5.8"}
+    return {"status": "ok", "app": "IMGW-OSMET", "version": APP_VERSION}
 
 
 @app.get("/api/voivodeships")
@@ -332,6 +394,86 @@ def check_warning_level(req: LevelCheckRequest):
     return LevelCheckResponse(level=level, phenomenon=req.phenomenon, params=req.params)
 
 
+def _parse_any_dt(sv):
+    """Parsuje czas zapisany naiwnie-lokalnie (UI) LUB z 'Z'/offsetem (import IMGW) → UTC."""
+    if not sv:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(sv).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZoneInfo("Europe/Warsaw"))
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _validate_times(w):
+    """A1: koniec ważności musi być po początku (dało się zapisać 12:00 → 08:56)."""
+    o, e = _parse_any_dt(getattr(w, "onset", None)), _parse_any_dt(getattr(w, "expires", None))
+    if o and e and e <= o:
+        raise HTTPException(422,
+            f"Koniec ważności ({getattr(w, 'expires', '?')}) musi być późniejszy "
+            f"niż początek ({getattr(w, 'onset', '?')})")
+
+
+def _find_overlap_conflicts(phenomenon, counties, onset, expires, exclude_ids=None):
+    """REGUŁA: to samo zjawisko nie może mieć dwóch ostrzeżeń na tym samym powiecie
+    w nakładającym się czasie. Sekwencje (stykające się okna) są dozwolone.
+    Zwraca listę (ostrzeżenie, wspólne_powiaty)."""
+    exclude_ids = exclude_ids or set()
+    new_ids = {str(getattr(c, "id", None) or (c.get("id") if isinstance(c, dict) else None))
+               for c in (counties or [])}
+    new_ids.discard("None")
+    no, ne = _parse_any_dt(onset), _parse_any_dt(expires)
+    if not new_ids or no is None or ne is None:
+        return []
+    out = []
+    for w in WARNINGS_DB.values():
+        if w.get("id") in exclude_ids:
+            continue
+        if w.get("phenomenon") != phenomenon:
+            continue
+        if w.get("is_active_leaf") is False or w.get("is_cancelled"):
+            continue
+        if _compute_status(w) not in ("active", "pending"):
+            continue
+        shared = new_ids & {str(c.get("id")) for c in (w.get("counties") or [])}
+        if not shared:
+            continue
+        wo, we = _parse_any_dt(w.get("onset")), _parse_any_dt(w.get("expires"))
+        if wo is None or we is None:
+            continue
+        if no < we and wo < ne:   # nakładanie (styk okien: ne==wo lub no==we — dozwolony)
+            names = [c.get("name", c.get("id")) for c in (w.get("counties") or [])
+                     if str(c.get("id")) in shared]
+            out.append((w, names))
+    return out
+
+
+def _overlap_409(conflicts, new_onset, new_expires):
+    """B3: zwraca też IDENTYFIKATORY kolidujących powiatów, żeby interfejs mógł je
+    podświetlić na mapie i jednym kliknięciem odznaczyć. Sama lista nazw w tekście
+    była bezużyteczna przy 380 powiatach."""
+    w, names = conflicts[0]
+    ids = sorted({str(c.get("id")) for c in (w.get("counties") or [])
+                  if c.get("name") in names or str(c.get("id")) in names})
+    shown = ", ".join(sorted(names)[:6]) + (f" (+{len(names)-6})" if len(names) > 6 else "")
+    raise HTTPException(409, {
+        "message": (
+            f"Konflikt: to zjawisko ma już ostrzeżenie St.{w.get('level')} "
+            f"({w.get('onset','?')} → {w.get('expires','?')}) na powiatach: {shown}. "
+            f"Nowe okno {new_onset} → {new_expires} nachodzi w czasie. "
+            f"Ostrzeżenia dla tego samego obszaru mogą następować PO SOBIE — zmień czasy "
+            f"albo najpierw zaktualizuj/odwołaj istniejące."),
+        "conflict_county_ids": ids,
+        "conflict_county_names": sorted(names),
+        "conflict_warning_id": w.get("id"),
+        "conflict_level": w.get("level"),
+        "conflict_onset": w.get("onset"),
+        "conflict_expires": w.get("expires"),
+    })
+
+
 @app.post("/api/warnings", response_model=WarningDB)
 def create_warning(warning: WarningCreate, publish: bool = False):
     """
@@ -339,6 +481,20 @@ def create_warning(warning: WarningCreate, publish: bool = False):
     publish=False (default): zapis draft w edytorze, bez CAP/PDF/webhooks
     publish=True: pełna publikacja (CAP, PDF, dispatch, webhook)
     """
+    # Walidacja obszaru: ostrzeżenie bez powiatów i bez poligonu = nieważny CAP (brak <area>).
+    # To źródło „widmowych" plików w eksporcie zbiorczym — twarda odmowa.
+    if not warning.counties and not getattr(warning, "polygon", None) \
+       and getattr(warning, "msg_type", "Alert") != "Cancel":
+        raise HTTPException(422, "Ostrzeżenie musi obejmować co najmniej jeden powiat (lub poligon)")
+    _validate_times(warning)
+    # REGUŁA NAKŁADANIA: samo zjawisko × wspólny powiat × nachodzący czas = odmowa (409).
+    # (Update nowej wersji wyklucza rekord referencyjny — zastępuje go, nie koliduje z nim.)
+    if getattr(warning, "msg_type", "Alert") != "Cancel":
+        _excl = {getattr(warning, "references_id", None)} if getattr(warning, "references_id", None) else set()
+        _conf = _find_overlap_conflicts(warning.phenomenon, warning.counties,
+                                        warning.onset, warning.expires, exclude_ids=_excl)
+        if _conf:
+            _overlap_409(_conf, warning.onset, warning.expires)
     wid   = str(uuid.uuid4())
     level = determine_warning_level(warning.phenomenon, warning.params)
     w     = warning.model_dump()
@@ -1129,6 +1285,15 @@ def update_warning_inplace(warning_id: str, warning: WarningCreate, publish: boo
     orig = WARNINGS_DB.get(warning_id)
     if not orig:
         raise HTTPException(404, "Warning not found")
+    # Walidacja obszaru — jak przy tworzeniu (Update z pustym obszarem = nieważny CAP)
+    if not warning.counties and not getattr(warning, "polygon", None):
+        raise HTTPException(422, "Aktualizacja musi obejmować co najmniej jeden powiat (lub poligon)")
+    _validate_times(warning)
+    # REGUŁA NAKŁADANIA — z wykluczeniem aktualizowanego rekordu (on zostanie zastąpiony)
+    _conf = _find_overlap_conflicts(warning.phenomenon, warning.counties,
+                                    warning.onset, warning.expires, exclude_ids={warning_id})
+    if _conf:
+        _overlap_409(_conf, warning.onset, warning.expires)
 
     # Oblicz nowy level z nowych parametrów
     new_level = determine_warning_level(warning.phenomenon, warning.params)
@@ -1197,6 +1362,7 @@ def update_warning_inplace(warning_id: str, warning: WarningCreate, publish: boo
     new_w["is_updated"]     = False
     new_w["superseded_by"]  = None
     new_w["is_published"]   = publish
+    new_w["user_modified"]  = True     # B11: ruszony ręcznie → import nie zastąpi go po cichu
 
     WARNINGS_DB[new_id] = new_w
     save_warnings()
@@ -1263,20 +1429,35 @@ def get_phenomena():
 @app.get("/api/export/cap-xml")
 def export_cap_xml(
     status_filter: str = Query("active,pending",
-        description="Statusy do uwzględnienia (csv): active,pending,expired")
+        description="Statusy do uwzględnienia (csv): active,pending,expired"),
+    include_drafts: bool = Query(False,
+        description="Czy dołączać niedokończone drafty (is_published=False). Rekordy bez pola traktowane jak opublikowane (import IMGW/legacy).")
 ):
     """Zbiorczy eksport CAP XML — ZIP ze wszystkimi ostrzeżeniami wg filtru statusu.
     Każde ostrzeżenie generuje osobny plik XML. Ostrzeżenia zaimportowane z IMGW API
-    które nie mają wygenerowanego XML — generują go on-the-fly."""
+    które nie mają wygenerowanego XML — generują go on-the-fly.
+    Drafty (is_published=False) domyślnie NIE wchodzą do paczki „dla świata".
+    Rekordy bez powiatów i bez poligonu są zawsze pomijane (nieważny CAP bez <area>)."""
     allowed = set(status_filter.split(","))
     warnings = [w for w in WARNINGS_DB.values()
                 if _compute_status(w) in allowed]
+
+    drafts_skipped = 0
+    if not include_drafts:
+        pre = len(warnings)
+        warnings = [w for w in warnings if w.get("is_published", True)]
+        drafts_skipped = pre - len(warnings)
+
+    pre = len(warnings)
+    warnings = [w for w in warnings if (w.get("counties") or w.get("polygon"))]
+    invalid_skipped = pre - len(warnings)
 
     if not warnings:
         raise HTTPException(404, "Brak ostrzeżeń do eksportu")
 
     buf = io.BytesIO()
     count = 0
+    _cached_any = False
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for w in warnings:
             w["status"] = _compute_status(w)
@@ -1286,6 +1467,7 @@ def export_cap_xml(
                 try:
                     cap_xml = generate_cap_xml(w)
                     w["cap_xml"] = cap_xml  # cache
+                    _cached_any = True
                 except Exception:
                     continue
             if not cap_xml:
@@ -1298,8 +1480,8 @@ def export_cap_xml(
             zf.writestr(fname, cap_xml)
             count += 1
 
-    if count > 0:
-        save_warnings()  # persist cached cap_xml
+    if _cached_any:
+        save_warnings()  # utrwal dogenerowany cap_xml (bez zapisu przy każdym eksporcie)
     buf.seek(0)
     now_str = datetime.now().strftime("%Y%m%d_%H%M")
     return Response(
@@ -1308,6 +1490,8 @@ def export_cap_xml(
         headers={
             "Content-Disposition": f'attachment; filename="imgw-osmet_cap_{now_str}_{count}szt.zip"',
             "X-Warnings-Count": str(count),
+            "X-Drafts-Skipped": str(drafts_skipped),
+            "X-Invalid-Skipped": str(invalid_skipped),
         }
     )
 
@@ -1428,17 +1612,14 @@ def import_from_imgw():
 
         # Czasy — konwertuj z "YYYY-MM-DD HH:MM:SS" na ISO
         def _to_iso(s):
-            """Konwertuje czas lokalny PL (CEST=UTC+2 lub CET=UTC+1) na UTC ISO."""
+            """Konwertuje czas lokalny PL na UTC ISO — z poprawnym DST (Europe/Warsaw),
+            nie sztywnym offsetem po miesiącu (błądził ±1 h wokół zmian czasu)."""
             if not s:
                 return None
             try:
-                from datetime import datetime, timedelta
-                import time as _time
-                dt_local = datetime.strptime(str(s), "%Y-%m-%d %H:%M:%S")
-                # Ustal offset: CEST (marzec-październik) = UTC+2, CET = UTC+1
-                month = dt_local.month
-                utc_offset = 2 if 3 <= month <= 10 else 1
-                dt_utc = dt_local - timedelta(hours=utc_offset)
+                dt_local = datetime.strptime(str(s), "%Y-%m-%d %H:%M:%S").replace(
+                    tzinfo=ZoneInfo("Europe/Warsaw"))
+                dt_utc = dt_local.astimezone(timezone.utc)
                 return dt_utc.strftime("%Y-%m-%dT%H:%M:00Z")
             except Exception:
                 return str(s)
@@ -1479,7 +1660,7 @@ def import_from_imgw():
         })
 
     # Oznacz które już istnieją w bazie (by frontend mógł je greyed-out pokazać)
-    existing_imgw_ids = {w.get("imgw_id") for w in WARNINGS_DB.values() if w.get("imgw_id")}
+    existing_imgw_ids = _live_imgw_ids()
     for w in imported:
         w["already_exists"] = w["imgw_id"] in existing_imgw_ids
 
@@ -1495,6 +1676,91 @@ def import_from_imgw():
     }
 
 
+def _live_imgw_ids(with_ids=False):
+    """Identyfikatory IMGW ostrzeżeń, które nadal OBOWIĄZUJĄ.
+
+    Odwołane i zastąpione są pomijane — inaczej po skasowaniu ostrzeżenia
+    nie dało się go ponownie zaimportować z API („już w bazie"), bo rekord
+    zostawał w bazie ze statusem `cancelled`.
+    """
+    out = {}
+    for wid, w in WARNINGS_DB.items():
+        if not w.get("imgw_id"):
+            continue
+        if w.get("is_cancelled") or w.get("is_active_leaf") is False:
+            continue
+        if w.get("status") == "cancelled" or _compute_status(w) == "cancelled":
+            continue
+        out[w["imgw_id"]] = wid
+    return out if with_ids else set(out.keys())
+
+
+def _analyze_import(incoming: list):
+    """B11: porównuje partię z IMGW API ze stanem lokalnym.
+
+    IMGW API nie oznacza, że rekord jest NOWĄ WERSJĄ poprzedniego — daje po prostu
+    kolejny wpis. Dlatego aktualizacja kolegi 1°→2° kładła się obok istniejącej
+    jedynki i przez 8 godzin współistniały dwa ostrzeżenia tego samego typu
+    na tym samym powiecie. Klasyfikujemy więc każdy wpis:
+
+      new             — brak kolizji, można zapisać
+      duplicate       — ten sam imgw_id już jest (pomijamy)
+      supersedes      — koliduje z rekordem POCHODZĄCYM Z API i nietkniętym ręcznie
+                        → bezpiecznie zastąpić nowszą wersją
+      needs_decision  — koliduje z ostrzeżeniem utworzonym ręcznie lub zmodyfikowanym
+                        → pytamy synoptyka, bo to jego praca
+    """
+    existing_ids = _live_imgw_ids(with_ids=True)
+    out = []
+    for w in incoming:
+        entry = {"warning": w, "kind": "new", "collides_with": []}
+        if w.get("imgw_id") and w["imgw_id"] in existing_ids:
+            entry["kind"] = "duplicate"
+            out.append(entry)
+            continue
+
+        conflicts = _find_overlap_conflicts(w.get("phenomenon"), w.get("counties") or [],
+                                            w.get("onset"), w.get("expires"))
+        if conflicts:
+            auto_replaceable = True
+            for cw, names in conflicts:
+                entry["collides_with"].append({
+                    "id": cw.get("id"), "level": cw.get("level"),
+                    "onset": cw.get("onset"), "expires": cw.get("expires"),
+                    "counties": sorted(names)[:8], "counties_count": len(names),
+                    "source": cw.get("source", "manual"),
+                    "user_modified": bool(cw.get("user_modified")),
+                })
+                if cw.get("source") != "imgw_api" or cw.get("user_modified"):
+                    auto_replaceable = False
+            entry["kind"] = "supersedes" if auto_replaceable else "needs_decision"
+        out.append(entry)
+    return out
+
+
+@app.post("/api/import/imgw/analyze")
+def analyze_imgw_import(body: dict):
+    """Zwraca plan uzgodnienia bez zapisywania czegokolwiek."""
+    res = _analyze_import(body.get("warnings", []))
+    counts = {}
+    for e in res:
+        counts[e["kind"]] = counts.get(e["kind"], 0) + 1
+    return {
+        "summary": counts,
+        "requires_decision": any(e["kind"] == "needs_decision" for e in res),
+        "items": [{
+            "imgw_id": e["warning"].get("imgw_id"),
+            "phenomenon": e["warning"].get("phenomenon"),
+            "level": e["warning"].get("level"),
+            "onset": e["warning"].get("onset"),
+            "expires": e["warning"].get("expires"),
+            "counties_count": len(e["warning"].get("counties") or []),
+            "kind": e["kind"],
+            "collides_with": e["collides_with"],
+        } for e in res],
+    }
+
+
 @app.post("/api/import/imgw/save")
 def save_imgw_warnings(body: dict):
     """
@@ -1503,13 +1769,14 @@ def save_imgw_warnings(body: dict):
     Idempotentne — ponowny import tego samego imgw_id nie tworzy duplikatu.
     """
     warnings_to_save = body.get("warnings", [])
+    # B11: co zrobić z wpisami kolidującymi czasowo z istniejącymi
+    #   "skip"    – pomiń (domyślne, nic nie nadpisujemy po cichu)
+    #   "replace" – odwołaj kolidujące i zapisz nowszą wersję
+    conflict_mode = (body.get("conflict_mode") or "skip").lower()
+    superseded, blocked = [], []
 
     # Zbuduj indeks istniejących imgw_id → id wewnętrzne
-    existing_imgw_ids = {
-        w.get("imgw_id"): wid
-        for wid, w in WARNINGS_DB.items()
-        if w.get("imgw_id")
-    }
+    existing_imgw_ids = _live_imgw_ids(with_ids=True)
 
     saved = []
     skipped = 0
@@ -1521,6 +1788,26 @@ def save_imgw_warnings(body: dict):
             skipped += 1
             continue
 
+        # B11: kolizja czasowa z istniejącym ostrzeżeniem tego samego zjawiska
+        _conf = _find_overlap_conflicts(w.get("phenomenon"), w.get("counties") or [],
+                                        w.get("onset"), w.get("expires"))
+        if _conf:
+            if conflict_mode != "replace":
+                blocked.append({
+                    "phenomenon": w.get("phenomenon"), "level": w.get("level"),
+                    "onset": w.get("onset"), "expires": w.get("expires"),
+                    "collides_with": [c[0].get("id") for c in _conf],
+                })
+                skipped += 1
+                continue
+            # zastąpienie: odwołaj kolidujące (zachowując ślad w historii)
+            for cw, _names in _conf:
+                cw["status"] = "cancelled"
+                cw["is_active_leaf"] = False
+                cw["cancelled_reason"] = "Zastąpione nowszą wersją z IMGW API"
+                cw["cancelled_at"] = datetime.now(timezone.utc).isoformat()
+                superseded.append(cw.get("id"))
+
         wid   = str(uuid.uuid4())
         level = w.get("level") or determine_warning_level(
             w.get("phenomenon", ""), w.get("params", {})
@@ -1528,6 +1815,8 @@ def save_imgw_warnings(body: dict):
         new_w = {
             "id":          wid,
             "imgw_id":     imgw_id,
+            "source":      "imgw_api",     # B11: pochodzenie — pozwala bezpiecznie zastępować
+            "user_modified": False,
             "phenomenon":  w.get("phenomenon"),
             "level":       level,
             "status":      _compute_status({
@@ -1556,13 +1845,16 @@ def save_imgw_warnings(body: dict):
 
     if saved:
         save_warnings()
-    return {"saved": len(saved), "skipped": skipped, "warnings": saved}
+    return {"saved": len(saved), "skipped": skipped, "warnings": saved,
+            "superseded": superseded, "blocked": blocked,
+            "conflict_mode": conflict_mode}
 
 
 # ============================================================
 # EKSPORT — SVG / PDF
 # ============================================================
 from app.services.map_exporter import generate_warning_svg, generate_warning_png
+from app.services.png_map import generate_png, generate_infographic, LAYOUTS
 from app.services.pdf_generator import generate_warning_pdf, REPORTLAB_AVAILABLE
 
 
@@ -1589,28 +1881,35 @@ def export_svg(
 @app.get("/api/export/png")
 def export_png(
     status_filter: str = Query("active,pending",
-        description="Statusy do uwzględnienia (csv): active,pending,expired")
+        description="Statusy do uwzględnienia (csv): active,pending,expired"),
+    voivodeship: str = Query(None, description="Filtr województwa (opcjonalny)"),
+    mode: str = Query("metric", description="metric = mapa + metryczka; infographic = mapa zbiorcza + mapki per zjawisko (dla mediów)"),
+    orientation: str = Query("landscape", description="Dla infographic: landscape | portrait | social"),
+    facets: bool = Query(True, description="Dla infographic: dołączyć mapki per zjawisko (przy jednym zjawisku i tak pomijane)"),
+    width: int = Query(1400, ge=800, le=2400),
+    height: int = Query(1000, ge=600, le=1800),
 ):
-    """Eksport metryczki ostrzeżeń jako PNG (do social media)."""
+    """Metryczka PNG: mapa wszystkich powiatów + zwięzła legenda
+    (zjawisko/stopień, liczba powiatów, województwa, okres).
+    Renderowana przez Pillow — bez zależności od svglib, która bywała zawodna."""
     allowed = set(status_filter.split(","))
-    warnings = [w for w in WARNINGS_DB.values()
-                if _compute_status(w) in allowed]
+    warnings = [w for w in WARNINGS_DB.values() if _compute_status(w) in allowed]
     for w in warnings:
         w["status"] = _compute_status(w)
 
-    png_bytes = generate_warning_png(warnings, width=1200, height=1000)
+    if mode == "infographic":
+        png_bytes = generate_infographic(warnings, orientation=orientation,
+                                         voivodeship=voivodeship, facets=facets)
+    else:
+        png_bytes = generate_png(warnings, width=width, height=height,
+                                 voivodeship=voivodeship)
     if png_bytes is None:
-        # Fallback: zwracamy SVG ze statusem 200 ale media-type SVG
-        # (frontend może go zrzucić jako SVG zamiast PNG)
-        svg = generate_warning_svg(warnings)
-        return Response(
-            content=svg,
-            media_type="image/svg+xml",
-            headers={"Content-Disposition": 'attachment; filename="meteocap_metryczka.svg"',
-                     "X-Fallback-Format": "svg"}
-        )
+        raise HTTPException(503, "Pillow nie jest zainstalowany — PNG niedostępny")
+
     from datetime import datetime as _dt
-    fname = f"imgw-osmet_{_dt.now().strftime('%Y%m%d_%H%M')}.png"
+    suffix = f"_{voivodeship.lower().replace(' ', '-')}" if voivodeship else ""
+    kind = "infografika" if mode == "infographic" else "metryczka"
+    fname = f"imgw-osmet_{kind}{suffix}_{_dt.now().strftime('%Y%m%d_%H%M')}.png"
     return Response(
         content=png_bytes,
         media_type="image/png",
@@ -1638,6 +1937,18 @@ def export_pdf(
     for w in warnings:
         w["status"] = _compute_status(w)
     warnings = [w for w in warnings if w["status"] in allowed]
+    if voivodeship:
+        # Raport wojewódzki: przytnij powiaty do wybranego województwa,
+        # żeby nie wyliczać obszarów z sąsiednich (ostrzeżenie bywa ponadwojewódzkie)
+        _t = voivodeship.strip().lower()
+        _trim = []
+        for _w in warnings:
+            _own = [c for c in (_w.get("counties") or [])
+                    if (c.get("voiv_name") or "").strip().lower() == _t]
+            if _own:
+                _w2 = dict(_w); _w2["counties"] = _own
+                _trim.append(_w2)
+        warnings = _trim
 
     pdf_bytes = generate_warning_pdf(
         warnings,
@@ -1824,7 +2135,60 @@ def test_webhook_endpoint(wh_id: str):
 # ============================================================
 import json as _json
 
-TEMPLATES_FILE = "/data/templates.json"
+@app.get("/api/version")
+def get_version():
+    """Wersja aplikacji z pliku VERSION — nagłówek UI pobiera ją stąd,
+    więc nie może się już rozjechać z rzeczywistym buildem."""
+    return {"version": APP_VERSION, "app": "IMGW-OSMET", "data_dir": DATA_DIR}
+
+
+# ── Biblioteka skutków i zaleceń (JSON z kreatora matrycy) ──────────────────
+IMPACTS_LIBRARY_FILE = _data_path("impacts_library.json")
+_BUNDLED_IMPACTS = os.path.join(os.path.dirname(__file__), "data", "impacts_library.json")
+
+def _load_impacts_library():
+    """Źródło: /data (wgrane z UI, przeżywa aktualizacje) → wbudowana (z repo) → pusta."""
+    for path, src in ((IMPACTS_LIBRARY_FILE, "data"), (_BUNDLED_IMPACTS, "bundled")):
+        try:
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as f:
+                    m = json.load(f)
+                if isinstance(m, dict) and m:
+                    return m, src
+        except Exception as e:
+            print(f"[IMPACTS] błąd wczytania {path}: {e}")
+    return {}, "none"
+
+@app.get("/api/impacts-library")
+def get_impacts_library():
+    matrix, source = _load_impacts_library()
+    n = sum(len(d.get(k, [])) for ph in matrix.values() if isinstance(ph, dict)
+            for d in ph.values() if isinstance(d, dict) for k in ("skutki", "zalecenia"))
+    return {"source": source, "entries": n, "matrix": matrix}
+
+@app.post("/api/impacts-library")
+def upload_impacts_library(payload: dict):
+    """Wgraj bibliotekę: akceptuje pełny eksport kreatora (obiekt matrix)
+    lub {"matrix": {...}}. Zapis atomowy do /data."""
+    matrix = payload.get("matrix", payload)
+    if not isinstance(matrix, dict) or not matrix:
+        raise HTTPException(422, "Oczekiwano obiektu matrix (eksport JSON z kreatora)")
+    ok = any(isinstance(ph, dict) and any(isinstance(d, dict) and ("skutki" in d or "zalecenia" in d)
+             for d in ph.values()) for ph in matrix.values())
+    if not ok:
+        raise HTTPException(422, "Struktura nie wygląda na matrix kreatora (brak pól skutki/zalecenia)")
+    os.makedirs(DATA_DIR, exist_ok=True)
+    tmp = IMPACTS_LIBRARY_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(matrix, f, ensure_ascii=False, indent=1)
+        f.flush(); os.fsync(f.fileno())
+    os.replace(tmp, IMPACTS_LIBRARY_FILE)
+    n = sum(len(d.get(k, [])) for ph in matrix.values() if isinstance(ph, dict)
+            for d in ph.values() if isinstance(d, dict) for k in ("skutki", "zalecenia"))
+    return {"ok": True, "entries": n}
+
+
+TEMPLATES_FILE = _data_path("templates.json")
 
 def _load_templates():
     if not os.path.exists(TEMPLATES_FILE):
@@ -1836,7 +2200,7 @@ def _load_templates():
         return []
 
 def _save_templates(templates):
-    os.makedirs("/data", exist_ok=True)
+    os.makedirs(DATA_DIR, exist_ok=True)
     with open(TEMPLATES_FILE, "w", encoding="utf-8") as f:
         _json.dump(templates, f, ensure_ascii=False, indent=2)
 
@@ -2069,7 +2433,7 @@ def test_smtp(email_config: dict):
 
 @app.get("/api/delivery/log")
 def get_delivery_log(limit: int = Query(50)):
-    log_file = "/data/delivery_log.json"
+    log_file = _data_path("delivery_log.json")
     if not os.path.exists(log_file):
         return {"log": []}
     try:

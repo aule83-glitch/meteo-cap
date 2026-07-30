@@ -3,8 +3,8 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: meteocap-backend
     restart: unless-stopped
     volumes:
@@ -31,7 +31,9 @@ services:
     container_name: meteocap-frontend
     restart: unless-stopped
     ports:
-      - "3001:80"
+      # Port zgodny z tym, co pokazuje Portainer: http://container.imgw.ad:31001
+      # (dostęp bezpośredni; przez apps-proxy ta sama aplikacja jest pod /osmet-dev/)
+      - "31001:80"
     depends_on:
       backend:
         condition: service_started   # Nie czekaj na healthy — nginx i tak proxy-uje

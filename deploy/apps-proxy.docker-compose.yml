@@ -1,0 +1,30 @@
+# apps-proxy — brama dla aplikacji na container.imgw.ad
+#
+# Uruchamiaj PO starcie aplikacji, do których kieruje (sieci muszą już istnieć).
+#   docker compose up -d
+#
+# Adres docelowy do zgłoszenia administratorom:
+#   apps.container.imgw.ad  →  container.imgw.ad:31000
+
+services:
+  proxy:
+    image: nginx:alpine
+    container_name: apps-proxy
+    restart: unless-stopped
+    ports:
+      - "31000:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - meteocap-net
+      # - casexp-net        # odkomentuj razem z sekcją /casexp/ w nginx.conf
+
+networks:
+  # Sieć tworzona przez meteo-cap/docker-compose.yml.
+  # 'name' to REALNA nazwa w Dockerze (docker network ls), nie alias z tamtego pliku.
+  meteocap-net:
+    name: meteocap-network
+    external: true
+  # casexp-net:
+  #   name: casexp-network
+  #   external: true

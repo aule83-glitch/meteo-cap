@@ -8,7 +8,8 @@ import WindDirectionPicker from './WindDirectionPicker';
 import LevelBadge from './LevelBadge';
 import { getDraft, setDraft, resetDraft } from '../../utils/editorDraft';
 
-const API = import.meta.env.VITE_API_URL || '/api';
+// Adres API względem BASE_URL — aplikacja działa i pod /osmet-dev/, i bezpośrednio po porcie.
+const API = import.meta.env.VITE_API_URL || ((import.meta.env.BASE_URL || '/') + 'api');
 
 // Zjawiska kumulacyjne — przy escalate/deescalate pokazujemy pola "zaobserwowano dotychczas" / "prognoza pozostała"
 const CUMULATIVE_PHENOMENA = new Set([
@@ -97,7 +98,7 @@ function XmlPreviewModal({ xml, onClose }) {
   );
 }
 
-export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningCreated, onStatusChange, warnings = [], onLoadCounties, highlightedWarningId }) {
+export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningCreated, onStatusChange, warnings = [], onLoadCounties, highlightedWarningId, pendingEditId, onPendingEditConsumed, pendingCopyId, onPendingCopyConsumed, onEditingChange, onConflictCounties, onDraftContextChange }) {
   // Inicjalizacja ze zapisanego draftu (persystencja przy zmianie zakładki)
   const _d = getDraft();
 
@@ -117,11 +118,22 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
   const [descriptionEn, setDescriptionEn] = useState(_d.descriptionEn || '');
   const [impactsEn, setImpactsEn]         = useState(_d.impactsEn || '');
   const [instructionEn, setInstructionEn] = useState(_d.instructionEn || '');
+
+  // ── Biblioteka skutków/zaleceń (JSON z kreatora) — dobór 3+3 ──
+  const [conflict, setConflict] = useState(null);      // B3: {message, ids[], names[]}
+  const [importPlan, setImportPlan] = useState(null);  // B11: plan uzgodnienia importu
+  const [impactsLib, setImpactsLib] = useState(null);   // {source, entries, matrix}
+  const [libPanel,   setLibPanel]   = useState(null);   // null | 'skutki' | 'zalecenia'
+  const [libSel,     setLibSel]     = useState({});     // {tresc: true}
+  const [libZakres,  setLibZakres]  = useState('');     // '' = wszystkie zakresy
+  const libFileRef = useRef(null);
   // Aktywny język w textarea (per-pole, ale dla prostoty jeden globalny toggle)
   const [textLang, setTextLang] = useState('pl');  // 'pl' | 'en'
   const [msgType, setMsgType] = useState(_d.msgType || 'Alert');
   const [referencesId, setReferencesId] = useState(_d.referencesId || '');
   const [operationHint, setOperationHint] = useState(_d.operationHint || 'create');
+  // Ocena prawdopodobieństwa: 'possible' (<50%) | 'likely' (>50%) | 'observed' (trwa)
+  const [likelihood, setLikelihood] = useState(_d.likelihood || 'likely');
   // Dialog "powiat poza pierwotnym obszarem"
   const [expandDialog, setExpandDialog] = useState(null);   // null | { newCounties, oldCounties } 
   // Kontekst eskalacji/deeskalacji — dla zjawisk kumulacyjnych (opady)
@@ -299,10 +311,27 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     return (selectedCounties || []).filter(c => !ever.has(String(c.id)));
   })();
 
+  // JAWNY diff obszaru w trybie Update: co wypada z ostrzeżenia, co dochodzi.
+  // Kluczowe dla semantyki: selekcja = PEŁNY NOWY obszar ostrzeżenia (nie „obszar zmiany").
+  const updateAreaDiff = (() => {
+    if (msgType !== 'Update' || !originalForUpdate.current) return null;
+    const orig = originalForUpdate.current;
+    const selIds = new Set((selectedCounties || []).map(c => String(c.id)));
+    const removed = (orig.counties || []).filter(c => !selIds.has(String(c.id)));
+    const origIds = new Set(orig.counties_ids || []);
+    const added = (selectedCounties || []).filter(c => !origIds.has(String(c.id)));
+    if (!removed.length && !added.length) return null;
+    return { removed, added };
+  })();
+
   // Wczytaj szablon opisu dla wybranej operacji Update
+  // UWAGA: szanujemy descriptionUserEdited — po wczytaniu oryginału do aktualizacji
+  // NIE nadpisujemy jego opisu szablonem. Szablon wchodzi dopiero, gdy synoptyk
+  // świadomie wybierze operację z listy (select ustawia flagę na false).
   useEffect(() => {
     if (msgType !== 'Update' || !operationHint || operationHint === 'create') return;
     if (!originalForUpdate.current) return;
+    if (descriptionUserEdited.current) return;  // ochrona treści oryginału / ręcznych zmian
     const orig = originalForUpdate.current;
     // Kontekst dla szablonu
     const obs = parseFloat(observedValue) || 0;
@@ -339,6 +368,17 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
   }, [operationHint, msgType, JSON.stringify(params), level, observedValue, forecastValue]);
 
   // Wczytaj dane ostrzeżenia do formularza przy wyborze Update
+  // Konwersja zapisanego czasu (lokalny naiwny LUB UTC z 'Z' — rekordy z importu IMGW)
+  // na wartość pola datetime-local W CZASIE LOKALNYM. Zwykły slice(0,16) przesuwał
+  // czasy ostrzeżeń z importu o -2h (kopiowanie/aktualizacja „narzucały jakiś czas").
+  const toLocalInput = (iso, fallback) => {
+    if (!iso) return fallback;
+    const d = new Date(iso);                       // 'Z' → UTC; naiwny → lokalny
+    if (isNaN(d.getTime())) return String(iso).slice(0, 16);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+
   const handleLoadForUpdate = useCallback((warningId) => {
     setReferencesId(warningId);
     if (!warningId) return;
@@ -349,8 +389,9 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     // Wypełnij formularz danymi oryginału — synoptyk może je zmodyfikować
     setPhenomenon(orig.phenomenon || 'silny_wiatr');
     setParams(orig.params || {});
-    setOnset(orig.onset ? orig.onset.slice(0, 16) : getISOLocal(0));
-    setExpires(orig.expires ? orig.expires.slice(0, 16) : getISOLocal(24 * 60));
+    setLikelihood(orig.likelihood || 'likely');
+    setOnset(toLocalInput(orig.onset, getISOLocal(0)));
+    setExpires(toLocalInput(orig.expires, getISOLocal(24 * 60)));
     setHeadline(orig.headline || '');
     setDescription(orig.description || '');
     setDescriptionEn(orig.description_en || '');
@@ -376,6 +417,7 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
       level: orig.level,
       phenomenon: orig.phenomenon,
       params: { ...orig.params },
+      counties: (orig.counties || []).map(c => ({ ...c })),   // pełne obiekty — do diffu i przywracania
       counties_ids: (orig.counties || []).map(c => String(c.id)),
       counties_in_group_ever: new Set((orig.counties || []).map(c => String(c.id))),  // wypełnione async
       expires: orig.expires,
@@ -409,6 +451,68 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     window.addEventListener('meteocap:loadForUpdate', handler);
     return () => window.removeEventListener('meteocap:loadForUpdate', handler);
   }, [handleLoadForUpdate]);
+
+  // Deterministyczne „edytuj" z listy/statusu — stan w App zamiast CustomEvent,
+  // działa niezależnie od kolejności montowania (naprawa znikającego 'Edytuj')
+  useEffect(() => {
+    if (!pendingEditId) return;
+    setMsgType('Update');
+    handleLoadForUpdate(pendingEditId);
+    onPendingEditConsumed && onPendingEditConsumed();
+  }, [pendingEditId, handleLoadForUpdate, onPendingEditConsumed]);
+
+  // „Kopiuj ostrzeżenie" — wypełnij formularz jak przy aktualizacji, ale jako NOWE:
+  // bez references, bez trybu Update, bez snapshotu oryginału. Synoptyk zmienia
+  // stopień/zasięg/czas i zapisuje świeże ostrzeżenie (duplikacja prowydajnościowa).
+  useEffect(() => {
+    if (!pendingCopyId) return;
+    handleLoadForUpdate(pendingCopyId);   // wypełnia pola + wczytuje zasięg na mapę
+    setMsgType('Alert');                  // ...ale to NOWE ostrzeżenie, nie Update
+    setReferencesId(null);
+    setOperationHint('create');
+    originalForUpdate.current = null;
+    onStatusChange && onStatusChange({
+      msg: 'Skopiowano ostrzeżenie — edytujesz NOWĄ kopię (zmień stopień/zasięg/czas i zapisz)',
+      type: 'info' });
+    onPendingCopyConsumed && onPendingCopyConsumed();
+  }, [pendingCopyId, handleLoadForUpdate, onPendingCopyConsumed, onStatusChange]);
+
+  // Pobierz bibliotekę skutków/zaleceń (raz)
+  useEffect(() => {
+    fetch(`${API}/impacts-library`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d && d.matrix && Object.keys(d.matrix).length) setImpactsLib(d); })
+      .catch(() => {});
+  }, []);
+
+  // B2: zgłaszaj bieżące zjawisko i okno — mapa oznaczy powiaty już zajęte
+  // przez to samo zjawisko w nachodzącym czasie, ZANIM zaczniesz klikać.
+  const lastDraftCtx = useRef('');
+  useEffect(() => {
+    if (!onDraftContextChange) return;
+    const ctx = {
+      phenomenon,
+      onset: onset ? new Date(onset).toISOString() : null,
+      expires: expires ? new Date(expires).toISOString() : null,
+      excludeId: msgType === 'Update' ? referencesId : null,
+    };
+    const sig = JSON.stringify(ctx);
+    if (sig === lastDraftCtx.current) return;   // bez zmiany wartości — nie ruszaj mapy
+    // Opóźnienie: wpisywanie daty generuje wiele zmian pod rząd, a każda
+    // przemalowywała 380 powiatów. Bez tego edytor zauważalnie mulił.
+    const t = setTimeout(() => {
+      lastDraftCtx.current = sig;
+      onDraftContextChange(ctx);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [phenomenon, onset, expires, msgType, referencesId, onDraftContextChange]);
+
+  // Zgłoś do App trwający tryb Update → mapa przygasza pozostałe ostrzeżenia
+  useEffect(() => {
+    if (!onEditingChange) return;
+    onEditingChange(msgType === 'Update' && referencesId ? referencesId : null);
+    return () => onEditingChange(null);
+  }, [msgType, referencesId, onEditingChange]);
 
   const handleParamChange = useCallback((key, value) => {
     setParams(prev => ({ ...prev, [key]: value }));
@@ -454,7 +558,132 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     resetDraft(); // wyczyść persist store
   };
 
+  // ── Biblioteka: linie dla bieżącego zjawiska×stopnia, wybór, wstawianie ──
+  const libLines = (kind) => {
+    const cell = impactsLib?.matrix?.[phenomenon]?.[String(level)];
+    if (!cell) return [];
+    const seen = new Set(); const out = [];
+    (cell[kind] || []).forEach(it => {
+      const t = (it.tresc || '').trim();
+      if (!t || seen.has(t)) return;
+      seen.add(t);
+      out.push({ tresc: t, zakres: it.zakres || 'ogolny', otoczenie: it.otoczenie || 'zawsze' });
+    });
+    return out;
+  };
+
+  const applyLibSelection = (kind) => {
+    const chosen = libLines(kind).filter(l => libSel[l.tresc]).map(l => l.tresc.replace(/\.+$/, ''));
+    if (!chosen.length) return;
+    const text = chosen.map(t => '• ' + t + '.').join('\n');
+    if (kind === 'skutki') { setImpacts(text); impactsUserEdited.current = true; }
+    else { setInstruction(text); instructionUserEdited.current = true; }
+    setLibPanel(null); setLibSel({});
+  };
+
+  const handleLibUpload = async (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if (!f) return;
+    try {
+      const matrix = JSON.parse(await f.text());
+      const res = await fetch(`${API}/impacts-library`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matrix }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.detail || `HTTP ${res.status}`);
+      const d = await fetch(`${API}/impacts-library`).then(r => r.json());
+      setImpactsLib(d);
+      onStatusChange({ msg: `Wczytano bibliotekę z kreatora (${j.entries} wpisów)`, type: 'success' });
+    } catch (e) {
+      onStatusChange({ msg: `Błąd wczytywania biblioteki: ${e.message}`, type: 'error' });
+    }
+  };
+
+  const renderLibPicker = (kind) => {
+    const lines = libLines(kind);
+    const zakresy = [...new Set(lines.map(l => l.zakres))];
+    const shown = lines.filter(l => !libZakres || l.zakres === libZakres);
+    const selCount = lines.filter(l => libSel[l.tresc]).length;
+    const chip = (val, label) => (
+      <button key={val || 'all'} type="button" onClick={() => setLibZakres(val)}
+        style={{ padding: '1px 8px', borderRadius: 999, fontSize: 9.5, cursor: 'pointer',
+          border: '1px solid ' + (libZakres === val ? 'var(--accent-blue)' : 'var(--border)'),
+          background: libZakres === val ? 'rgba(59,130,246,0.15)' : 'transparent',
+          color: libZakres === val ? 'var(--text-accent)' : 'var(--text-muted)' }}>
+        {label}
+      </button>
+    );
+    return (
+      <div style={{ marginTop: 6, padding: 8, background: 'var(--bg-elevated)',
+        border: '1px solid var(--border)', borderRadius: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 10, fontWeight: 700,
+            color: selCount > 3 ? 'var(--warn-2)' : 'var(--text-muted)' }}>
+            wybrano {selCount}/3{selCount > 3 ? ' — zalecane maks. 3' : ''}
+          </span>
+          <div style={{ flex: 1 }} />
+          {zakresy.length > 1 && chip('', 'wszystkie')}
+          {zakresy.length > 1 && zakresy.map(z => chip(z, z))}
+          <button type="button" onClick={() => libFileRef.current && libFileRef.current.click()}
+            title="Wgraj eksport JSON z kreatora matrycy (zastępuje bibliotekę na serwerze)"
+            style={{ padding: '1px 8px', borderRadius: 999, fontSize: 9.5, cursor: 'pointer',
+              border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-muted)' }}>
+            ⤒ JSON z kreatora
+          </button>
+        </div>
+        <div style={{ maxHeight: 170, overflowY: 'auto' }}>
+          {shown.map((l, i) => (
+            <label key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-start',
+              fontSize: 11, padding: '3px 2px', cursor: 'pointer', lineHeight: 1.35 }}>
+              <input type="checkbox" checked={!!libSel[l.tresc]}
+                onChange={() => setLibSel(sel => ({ ...sel, [l.tresc]: !sel[l.tresc] }))}
+                style={{ marginTop: 2, flexShrink: 0 }} />
+              <span style={{ flex: 1, color: 'var(--text-primary)' }}>
+                {l.tresc}
+                {l.zakres !== 'ogolny' && (
+                  <span style={{ marginLeft: 6, fontSize: 8.5, color: 'var(--text-muted)',
+                    border: '1px solid var(--border)', borderRadius: 999, padding: '0 5px',
+                    whiteSpace: 'nowrap' }}>{l.zakres}</span>
+                )}
+              </span>
+            </label>
+          ))}
+          {!shown.length && (
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
+              Brak pozycji dla tego zjawiska/stopnia{libZakres ? ' w tym zakresie' : ''}.
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+          <button type="button" className="btn btn-primary" style={{ fontSize: 10.5, padding: '4px 10px' }}
+            onClick={() => applyLibSelection(kind)} disabled={!selCount}>
+            Wstaw do pola ({selCount})
+          </button>
+          <button type="button" className="btn btn-secondary" style={{ fontSize: 10.5, padding: '4px 10px' }}
+            onClick={() => { setLibPanel(null); setLibSel({}); }}>
+            Anuluj
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // A1: koniec ostrzeżenia musi być PO początku (dało się zapisać 12:00 → 08:56)
+  const timeError = (() => {
+    if (!onset || !expires) return null;
+    const o = new Date(onset).getTime(), e = new Date(expires).getTime();
+    if (isNaN(o) || isNaN(e)) return null;
+    if (e <= o) return 'Koniec ważności musi być późniejszy niż początek.';
+    return null;
+  })();
+
   const handleSave = async () => {
+    if (timeError) {
+      onStatusChange({ msg: timeError, type: 'error' });
+      return;
+    }
     if (!level) {
       onStatusChange({ msg: 'Parametry nie spełniają kryteriów żadnego stopnia ostrzeżenia', type: 'error' });
       return;
@@ -466,6 +695,40 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
         oldCounties: (selectedCounties || []).filter(c => !newCountiesOutsideGroup.find(nc => nc.id === c.id)),
       });
       return;
+    }
+    // Ostatnia siatka bezpieczeństwa: zmiana obszaru przy Update wymaga świadomego potwierdzenia.
+    // (Semantyka: zaznaczenie = pełny NOWY obszar; „kliknięcie powiatów do zmiany" USUWA je z ostrzeżenia)
+    // A2: przy eskalacji/deeskalacji zaznaczenie wskazuje WYCINEK do zmiany stopnia —
+    // pozostałe powiaty zachowują dotychczasowy stopień (backend tworzy rekord-resztę).
+    // Wcześniejszy komunikat straszył „wypada N powiatów", co było nieprawdą.
+    if (msgType === 'Update' && referencesId && updateAreaDiff && updateAreaDiff.removed.length > 0
+        && (operationHint === 'escalate' || operationHint === 'deescalate')) {
+      const kept = updateAreaDiff.removed.length;
+      const orig = originalForUpdate.current;
+      const kierunek = operationHint === 'escalate' ? 'podnosisz' : 'obniżasz';
+      const ok = window.confirm(
+        `Zmiana stopnia na części obszaru.\n\n` +
+        `${kierunek.charAt(0).toUpperCase() + kierunek.slice(1)} stopień na ${selectedCounties.length} ` +
+        `powiat${selectedCounties.length === 1 ? 'cie' : 'ach'}.\n` +
+        `Pozostałe ${kept} zachowa dotychczasowy stopień ${orig?.level ?? ''}` +
+        (orig?.expires ? ` do ${new Date(orig.expires).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}` : '') + `.\n\n` +
+        `Nic nie zostanie usunięte.`
+      );
+      if (!ok) return;
+      await performSave('normal');
+      return;
+    }
+    if (msgType === 'Update' && referencesId && updateAreaDiff && updateAreaDiff.removed.length > 0) {
+      const r = updateAreaDiff.removed;
+      const names = r.slice(0, 8).map(c => c.name).join(', ') + (r.length > 8 ? ` … (+${r.length - 8})` : '');
+      const okno = window.confirm(
+        `UWAGA — zmieniasz obszar ostrzeżenia.\n\n` +
+        `Z ostrzeżenia WYPADA ${r.length} powiat${r.length===1?'':r.length<5?'y':'ów'}:\n${names}\n\n` +
+        `Po zapisie ostrzeżenie obejmie ${selectedCounties.length} powiatów` +
+        (updateAreaDiff.added.length ? ` (w tym ${updateAreaDiff.added.length} nowych)` : '') + `.\n\n` +
+        `Jeśli chciałeś zmienić TYLKO te powiaty, kliknij Anuluj i zaznacz te, które mają ZOSTAĆ.`
+      );
+      if (!okno) return;
     }
     await performSave('normal');
   };
@@ -510,7 +773,19 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
       setExpandDialog(null);
       resetForm();
     } catch (e) {
-      onStatusChange({ msg: `Błąd zapisu: ${e.response?.data?.detail || e.message}`, type: 'error' });
+      const det = e.response?.data?.detail;
+      if (e.response?.status === 409 && det && typeof det === 'object') {
+        // B3: konflikt czasowy — pokaż powiaty na mapie zamiast samej listy nazw
+        setConflict({
+          message: det.message || 'Konflikt czasowy',
+          ids: det.conflict_county_ids || [],
+          names: det.conflict_county_names || [],
+        });
+        if (onConflictCounties) onConflictCounties(det.conflict_county_ids || []);
+        onStatusChange({ msg: det.message || 'Konflikt czasowy', type: 'error' });
+        return;
+      }
+      onStatusChange({ msg: `Błąd zapisu: ${(typeof det === 'string' ? det : det?.message) || e.message}`, type: 'error' });
     } finally {
       setSaving(false);
       saveInProgress.current = false;
@@ -559,8 +834,9 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
       const d = res.data;
       if (d.phenomenon) setPhenomenon(d.phenomenon);
       if (d.params) setParams(d.params);
-      if (d.onset)   setOnset(d.onset.slice(0,16));
-      if (d.expires) setExpires(d.expires.slice(0,16));
+      if (d.likelihood) setLikelihood(d.likelihood);
+      if (d.onset)   setOnset(toLocalInput(d.onset, getISOLocal(0)));
+      if (d.expires) setExpires(toLocalInput(d.expires, getISOLocal(24 * 60)));
       if (d.headline) setHeadline(d.headline);
       if (d.description) setDescription(d.description);
       if (d.instruction) setInstruction(d.instruction);
@@ -573,6 +849,7 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
 
   const buildPayload = () => ({
     phenomenon, params,
+    likelihood,
     counties: selectedCounties,
     polygon: drawnPolygon,
     onset: new Date(onset).toISOString(),
@@ -647,9 +924,26 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     }
   };
 
-  const handleSaveIMGW = async (warningsToSave) => {
+  const handleSaveIMGW = async (warningsToSave, conflictMode) => {
     try {
-      const res = await axios.post(`${API}/import/imgw/save`, { warnings: warningsToSave });
+      // B11: najpierw sprawdź, co koliduje ze stanem lokalnym.
+      // IMGW API nie oznacza nowych WERSJI, więc bez tego kroku aktualizacja 1°→2°
+      // kładła się obok istniejącej jedynki i oba ostrzeżenia współistniały.
+      if (!conflictMode) {
+        const an = await axios.post(`${API}/import/imgw/analyze`, { warnings: warningsToSave });
+        const d = an.data || {};
+        const sup = d.summary?.supersedes || 0;
+        const need = d.summary?.needs_decision || 0;
+        if (sup || need) {
+          setImportPlan({ plan: d, warnings: warningsToSave });
+          return;
+        }
+      }
+      const res = await axios.post(`${API}/import/imgw/save`,
+        { warnings: warningsToSave, conflict_mode: conflictMode || 'skip' });
+      // udany zapis → zamknij oba okna, żeby nie zostawiać wiszącego stanu
+      setImportPlan(null);
+      setImgwPreview(null);
       res.data.warnings.forEach(w => onWarningCreated(w));
       const saved   = res.data.saved;
       const skipped = res.data.skipped || 0;
@@ -667,6 +961,19 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
     <div className="editor-panel">
       <div className="editor-header">
         <div className="editor-title">Edytor ostrzeżenia</div>
+      </div>
+
+      {/* B12: import z IMGW API to punkt wejścia całej pracy — na samej górze,
+          opisany wprost, zamiast być zakopanym obok „Presetów". */}
+      <div style={{ padding: '0 14px 8px' }}>
+        <button type="button" className="btn btn-secondary"
+          onClick={handleImportIMGW} disabled={imgwImporting}
+          style={{ width: '100%', fontSize: 11.5, padding: '7px 8px',
+            borderColor: 'var(--accent-blue)', color: 'var(--text-accent)',
+            background: 'rgba(59,130,246,0.10)' }}
+          title="Pobierz aktualne ostrzeżenia z publicznego API IMGW i uzgodnij ze stanem lokalnym">
+          {imgwImporting ? '⏳ Pobieram…' : '🌩 Pobierz aktualne ostrzeżenia z IMGW API'}
+        </button>
       </div>
 
       <div className="editor-scroll">
@@ -767,6 +1074,96 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
           })}
         </div>
 
+        {/* Prawdopodobieństwo wystąpienia (likelihood -> CAP certainty) */}
+        <div className="form-section">
+          <div className="form-section-label">Prawdopodobieństwo wystąpienia</div>
+          <div style={{ display:'flex', gap:4 }}>
+            {[
+              { id:'possible', label:'Możliwe',      hint:'< 50%' },
+              { id:'likely',   label:'Prawdopodobne', hint:'> 50%' },
+              { id:'observed', label:'Obserwowane',   hint:'trwa'  },
+            ].map(opt => {
+              const active = likelihood === opt.id;
+              return (
+                <button key={opt.id} type="button"
+                  onClick={() => setLikelihood(opt.id)}
+                  title={`Zjawisko ${opt.label.toLowerCase()} (${opt.hint})`}
+                  style={{ flex:1, padding:'7px 6px', fontSize:11, fontWeight:600,
+                    display:'flex', flexDirection:'column', alignItems:'center', gap:2,
+                    background: active ? 'var(--accent-blue)' : 'transparent',
+                    color: active ? '#000' : 'var(--text-secondary)',
+                    border: '1px solid ' + (active ? 'var(--accent-blue)' : 'var(--border)'),
+                    borderRadius:'var(--radius-md)', cursor:'pointer' }}>
+                  <span>{opt.label}</span>
+                  <span style={{ fontSize:9, fontFamily:'var(--font-mono)', opacity:0.8 }}>{opt.hint}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:5,
+            fontFamily:'var(--font-mono)' }}>
+            → CAP certainty: {likelihood === 'observed' ? 'Observed'
+              : likelihood === 'possible' ? 'Possible' : 'Likely'}
+          </div>
+        </div>
+
+        {/* Okres ważności */}
+        <div className="form-section">
+          <div className="form-section-label">Okres ważności</div>
+          <div className="datetime-grid">
+            <div className="form-input-group">
+              <label className="form-input-label">Od</label>
+              <input
+                type="datetime-local"
+                className="form-input"
+                value={onset}
+                onChange={e => setOnset(e.target.value)}
+              />
+            </div>
+            <div className="form-input-group">
+              <label className="form-input-label">Do</label>
+              <input
+                type="datetime-local"
+                className="form-input"
+                value={expires}
+                style={timeError ? { borderColor: 'var(--level-3, #ef4444)' } : undefined}
+                onChange={e => setExpires(e.target.value)}
+              />
+            </div>
+          </div>
+            {timeError && (
+              <div style={{ fontSize: 11, color: 'var(--level-3, #ef4444)', marginTop: 4 }}>
+                ⚠ {timeError}
+              </div>
+            )}
+        </div>
+
+        {/* Zakres elewacji (opcjonalnie) */}
+        <div className="form-section">
+          <div className="form-section-label">Zakres elewacji (opcjonalnie)</div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:6 }}>
+            <div className="form-input-group">
+              <label className="form-input-label">Od (m n.p.m.)</label>
+              <input type="number" className="form-input" min="0" max="2500" step="50"
+                placeholder="np. 600"
+                value={altFrom} onChange={e => setAltFrom(e.target.value)} />
+            </div>
+            <div className="form-input-group">
+              <label className="form-input-label">Do (m n.p.m.)</label>
+              <input type="number" className="form-input" min="0" max="2500" step="50"
+                placeholder="np. 2500"
+                value={altTo} onChange={e => setAltTo(e.target.value)} />
+            </div>
+          </div>
+          {(altFrom || altTo) && (
+            <div style={{fontSize:10,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>
+              Ostrzeżenie ważne dla terenu {altFrom||'0'}–{altTo||'2500'} m n.p.m.
+              · W CAP: altitude={altFrom ? Math.round(altFrom*3.28) : 0} ft,
+              ceiling={altTo ? Math.round(altTo*3.28) : 8202} ft
+            </div>
+          )}
+        </div>
+
         {/* Typ wiadomości */}
         <div className="form-section">
           <div className="form-section-label">Rodzaj komunikatu</div>
@@ -845,13 +1242,99 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
               {msgType === 'Update' && referencesId && (
                 <div style={{marginTop:10, padding:10, background:'var(--bg-elevated)',
                   borderRadius:'var(--radius-md)', border:'1px solid var(--border)'}}>
+
+                  {/* Baner: co aktualizujesz */}
+                  {originalForUpdate.current && (
+                    <div style={{marginBottom:10, padding:'7px 10px', borderRadius:'var(--radius-md)',
+                      background:'rgba(59,130,246,0.10)', border:'1px solid var(--accent-blue)',
+                      fontSize:11.5, color:'var(--text-primary)', display:'flex', alignItems:'center', gap:8}}>
+                      <span style={{fontSize:14}}>✎</span>
+                      <span>
+                        <b>Aktualizujesz:</b> {originalForUpdate.current.phenomenon?.replace(/_/g,' ')} St.{originalForUpdate.current.level}
+                        {' · '}{(originalForUpdate.current.counties || []).length} powiat{(originalForUpdate.current.counties||[]).length===1?'':(originalForUpdate.current.counties||[]).length<5?'y':'ów'}
+                        {originalForUpdate.current.expires ? ' · do ' + new Date(originalForUpdate.current.expires).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* JAWNY diff obszaru. Przy eskalacji/deeskalacji zaznaczenie wskazuje
+                      WYCINEK do zmiany stopnia — nic nie wypada, więc inna treść. */}
+                  {updateAreaDiff && (operationHint === 'escalate' || operationHint === 'deescalate') && (
+                    <div style={{marginBottom:10, padding:10, borderRadius:'var(--radius-md)',
+                      background:'rgba(59,130,246,0.10)', border:'1px solid var(--accent-blue)'}}>
+                      <div style={{fontSize:11, fontWeight:700, color:'var(--text-accent)', marginBottom:6}}>
+                        {operationHint === 'escalate' ? '↑ Podniesienie stopnia na części obszaru'
+                                                      : '↓ Obniżenie stopnia na części obszaru'}
+                      </div>
+                      <div style={{fontSize:10.5, color:'var(--text-primary)', lineHeight:1.5, marginBottom:4}}>
+                        Zmiana obejmie <b>{selectedCounties.length}</b>{' '}
+                        {selectedCounties.length === 1 ? 'powiat' : selectedCounties.length < 5 ? 'powiaty' : 'powiatów'}.
+                      </div>
+                      <div style={{fontSize:10.5, color:'#7ee2a8', lineHeight:1.5, marginBottom:6}}>
+                        Pozostałe <b>{updateAreaDiff.removed.length}</b> zachowa dotychczasowy stopień{' '}
+                        <b>{originalForUpdate.current?.level}</b>
+                        {originalForUpdate.current?.expires
+                          ? ' do ' + new Date(originalForUpdate.current.expires)
+                              .toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
+                          : ''}. Nic nie zostanie usunięte.
+                      </div>
+                      <button type="button" className="btn btn-secondary"
+                        style={{fontSize:10.5, padding:'4px 10px'}}
+                        onClick={() => {
+                          const orig = originalForUpdate.current;
+                          if (orig?.counties?.length && onLoadCounties) onLoadCounties(orig.counties);
+                        }}>
+                        ↺ Przywróć obszar oryginału
+                      </button>
+                    </div>
+                  )}
+                  {updateAreaDiff && operationHint !== 'escalate' && operationHint !== 'deescalate' && (
+                    <div style={{marginBottom:10, padding:10, borderRadius:'var(--radius-md)',
+                      background:'rgba(251,191,36,0.08)', border:'1px solid var(--warn-2)'}}>
+                      <div style={{fontSize:11, fontWeight:700, color:'var(--warn-2)', marginBottom:6}}>
+                        ⚠ Zmieniasz obszar ostrzeżenia
+                      </div>
+                      {updateAreaDiff.removed.length > 0 && (
+                        <div style={{fontSize:10.5, color:'#ff8895', lineHeight:1.5, marginBottom:4}}>
+                          <b>Wypada z ostrzeżenia ({updateAreaDiff.removed.length}):</b>{' '}
+                          {updateAreaDiff.removed.slice(0,6).map(c=>c.name).join(', ')}
+                          {updateAreaDiff.removed.length>6 ? ` i ${updateAreaDiff.removed.length-6} więcej` : ''}
+                          — te powiaty <b>przestaną być objęte</b> tym ostrzeżeniem.
+                        </div>
+                      )}
+                      {updateAreaDiff.added.length > 0 && (
+                        <div style={{fontSize:10.5, color:'#7ee2a8', lineHeight:1.5, marginBottom:4}}>
+                          <b>Dochodzi ({updateAreaDiff.added.length}):</b>{' '}
+                          {updateAreaDiff.added.slice(0,6).map(c=>c.name).join(', ')}
+                          {updateAreaDiff.added.length>6 ? ` i ${updateAreaDiff.added.length-6} więcej` : ''}
+                        </div>
+                      )}
+                      <div style={{fontSize:10, color:'var(--text-muted)', fontStyle:'italic', marginBottom:6}}>
+                        Zaznaczenie (cyjan) = <b>pełny obszar po aktualizacji</b>. Jeśli chcesz zmienić tylko część,
+                        zaznacz dokładnie te powiaty, które mają <b>zostać</b> w ostrzeżeniu.
+                      </div>
+                      <button type="button" className="btn btn-secondary"
+                        style={{fontSize:10.5, padding:'4px 10px'}}
+                        onClick={() => {
+                          const orig = originalForUpdate.current;
+                          if (orig?.counties?.length && onLoadCounties) onLoadCounties(orig.counties);
+                        }}>
+                        ↺ Przywróć obszar oryginału
+                      </button>
+                    </div>
+                  )}
+
                   <div style={{fontSize:10, color:'var(--text-muted)', textTransform:'uppercase',
                     letterSpacing:'0.06em', marginBottom:6}}>
                     Co robisz? <span style={{color:'var(--accent-blue)', textTransform:'none'}}>
                     (auto: <b>{operationHint}</b> — popraw jeśli źle)</span>
                   </div>
                   <select className="form-select" value={operationHint}
-                    onChange={e => setOperationHint(e.target.value)}>
+                    onChange={e => {
+                      setOperationHint(e.target.value);
+                      // świadomy wybór operacji = zgoda na wczytanie szablonu opisu
+                      descriptionUserEdited.current = false;
+                    }}>
                     <option value="amend">📝 Korekta detali (parametry, opis)</option>
                     <option value="escalate">⬆ Eskalacja — zjawisko nasila się</option>
                     <option value="deescalate">⬇ Deeskalacja — zjawisko słabnie</option>
@@ -1004,15 +1487,6 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
             )}
           </div>
 
-          {/* Import XML */}
-          <button className="btn btn-secondary btn-sm"
-            onClick={() => fileInputRef.current?.click()}
-            style={{ fontSize:11 }}>
-            📥 Importuj XML
-          </button>
-          <input ref={fileInputRef} type="file" accept=".xml"
-            onChange={handleImportXML} style={{ display:'none' }} />
-
           {/* Import z API IMGW */}
           <button className="btn btn-secondary btn-sm"
             onClick={handleImportIMGW}
@@ -1021,57 +1495,11 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
             style={{ fontSize:11, borderColor:'var(--accent-blue)' }}>
             {imgwImporting ? '⏳' : '🌩'} IMGW API
           </button>
-        </div>
-
-                {/* Elewacja n.p.m. */}
-        <div className="form-section">
-          <div className="form-section-label">Zakres elewacji (opcjonalnie)</div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:6 }}>
-            <div className="form-input-group">
-              <label className="form-input-label">Od (m n.p.m.)</label>
-              <input type="number" className="form-input" min="0" max="2500" step="50"
-                placeholder="np. 600"
-                value={altFrom} onChange={e => setAltFrom(e.target.value)} />
-            </div>
-            <div className="form-input-group">
-              <label className="form-input-label">Do (m n.p.m.)</label>
-              <input type="number" className="form-input" min="0" max="2500" step="50"
-                placeholder="np. 2500"
-                value={altTo} onChange={e => setAltTo(e.target.value)} />
-            </div>
-          </div>
-          {(altFrom || altTo) && (
-            <div style={{fontSize:10,color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>
-              Ostrzeżenie ważne dla terenu {altFrom||'0'}–{altTo||'2500'} m n.p.m.
-              · W CAP: altitude={altFrom ? Math.round(altFrom*3.28) : 0} ft,
-              ceiling={altTo ? Math.round(altTo*3.28) : 8202} ft
-            </div>
-          )}
-        </div>
-
-        {/* Time range */}
-        <div className="form-section">
-          <div className="form-section-label">Okres ważności</div>
-          <div className="datetime-grid">
-            <div className="form-input-group">
-              <label className="form-input-label">Od</label>
-              <input
-                type="datetime-local"
-                className="form-input"
-                value={onset}
-                onChange={e => setOnset(e.target.value)}
-              />
-            </div>
-            <div className="form-input-group">
-              <label className="form-input-label">Do</label>
-              <input
-                type="datetime-local"
-                className="form-input"
-                value={expires}
-                onChange={e => setExpires(e.target.value)}
-              />
-            </div>
-          </div>
+          {/* Ukryty input pliku CAP — wyzwalany przyciskiem na dole edytora */}
+          <input ref={fileInputRef} type="file" accept=".xml"
+            onChange={handleImportXML} style={{ display:'none' }} />
+      <input ref={libFileRef} type="file" accept=".json,application/json"
+        style={{ display: 'none' }} onChange={handleLibUpload} />
         </div>
 
         {/* Optional text */}
@@ -1162,6 +1590,28 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
               }}
               rows={3}
             />
+          
+            {textLang === 'pl' && impactsLib && level && (
+              <div style={{ marginTop: 4 }}>
+                <button type="button" className="btn btn-secondary"
+                  style={{ fontSize: 10, padding: '3px 8px' }}
+                  onClick={() => { setLibPanel(libPanel === 'skutki' ? null : 'skutki'); setLibSel({}); setLibZakres(''); }}>
+                  📚 Dobierz z biblioteki ({libLines('skutki').length})
+                </button>
+                {libPanel === 'skutki' && renderLibPicker('skutki')}
+              
+            {textLang === 'pl' && impactsLib && level && (
+              <div style={{ marginTop: 4 }}>
+                <button type="button" className="btn btn-secondary"
+                  style={{ fontSize: 10, padding: '3px 8px' }}
+                  onClick={() => { setLibPanel(libPanel === 'zalecenia' ? null : 'zalecenia'); setLibSel({}); setLibZakres(''); }}>
+                  📚 Dobierz z biblioteki ({libLines('zalecenia').length})
+                </button>
+                {libPanel === 'zalecenia' && renderLibPicker('zalecenia')}
+              </div>
+            )}
+          </div>
+            )}
           </div>
           <div className="form-input-group">
             <label className="form-input-label">
@@ -1189,63 +1639,88 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
 
       </div>
 
-      {/* Footer actions */}
+      {/* B3: konflikt czasowy — z podświetleniem na mapie i szybkim odznaczeniem */}
+      {conflict && (
+        <div style={{ margin: '0 14px 6px', padding: 10, borderRadius: 'var(--radius-md)',
+          background: 'rgba(239,68,68,0.10)', border: '1px solid var(--level-3, #ef4444)' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--level-3, #ef4444)', marginBottom: 5 }}>
+            ⛔ Konflikt czasowy — {conflict.ids.length || conflict.names.length} powiat(ów)
+          </div>
+          <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', lineHeight: 1.45, marginBottom: 7 }}>
+            {conflict.message}
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-secondary" style={{ fontSize: 10.5, padding: '4px 10px' }}
+              onClick={() => onConflictCounties && onConflictCounties(conflict.ids)}
+              title="Podświetl kolidujące powiaty na mapie">🔍 Pokaż na mapie</button>
+            <button type="button" className="btn btn-primary" style={{ fontSize: 10.5, padding: '4px 10px' }}
+              onClick={() => {
+                const bad = new Set(conflict.ids.map(String));
+                const keep = (selectedCounties || []).filter(c => !bad.has(String(c.id)));
+                if (onLoadCounties) onLoadCounties(keep);
+                setConflict(null);
+                if (onConflictCounties) onConflictCounties([]);
+                onStatusChange({ msg: `Odznaczono ${conflict.ids.length} kolidujących powiatów`, type: 'info' });
+              }}
+              title="Usuń kolidujące powiaty z zaznaczenia i zapisz resztę">✂ Odznacz kolidujące</button>
+            <button type="button" className="btn btn-secondary" style={{ fontSize: 10.5, padding: '4px 10px' }}
+              onClick={() => { setConflict(null); if (onConflictCounties) onConflictCounties([]); }}>
+              Zamknij
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Footer actions — kompakt: minimum wysokości, maksimum dla pól edycji */}
       <div className="editor-footer">
-        <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-          <button className="btn btn-secondary" style={{ flex: 1 }}
-            onClick={handleSave} disabled={saving || !level}>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M2 2h8l2 2v8a1 1 0 01-1 1H3a1 1 0 01-1-1V2z" stroke="currentColor" strokeWidth="1.2"/>
-              <rect x="4" y="8" width="6" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.2"/>
-              <rect x="4" y="2" width="5" height="3" rx="0.5" stroke="currentColor" strokeWidth="1.2"/>
-            </svg>
-            Zapisz
+        <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
+          <button className="btn btn-secondary" style={{ flex: 1, fontSize: 11.5, padding: '6px 6px' }}
+            onClick={handleSave} disabled={saving || !level || !!timeError}>
+            💾 Zapisz
           </button>
-          <button className="btn btn-primary" style={{ flex: 2 }}
+          <button className="btn btn-primary" style={{ flex: 1.4, fontSize: 11.5, padding: '6px 6px' }}
             onClick={() => handleDownloadXML('collective')} disabled={saving || !level}
             title="Jeden plik XML dla całego obszaru">
-            {saving
-              ? <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{animation:'spin 1s linear infinite'}}><circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="20" strokeDashoffset="5"/></svg>
-              : <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/><path d="M1 10v2a1 1 0 001 1h10a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
-            }
-            Zbiorczy XML
+            {saving ? '⏳' : '⬇'} Zbiorczy XML
           </button>
         </div>
-        <button className="btn btn-secondary" style={{ width:'100%', marginBottom: 6 }}
-          onClick={() => handleDownloadXML('per_county')} disabled={saving || !level || selectedCounties.length === 0}
-          title="Osobny plik XML dla każdego powiatu — format IMGW">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M3 1h5l3 3v9H3V1z" stroke="currentColor" strokeWidth="1.2"/>
-            <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2"/>
-            <path d="M5 7h4M5 9.5h2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-          </svg>
-          ZIP — per powiat ({selectedCounties.length} plików)
-        </button>
-        <button className="btn btn-secondary" style={{ width:'100%', marginBottom: 6 }}
-          onClick={handlePreviewXML} disabled={previewLoading || !level}
-          title="Podgląd CAP XML przed pobraniem">
-          {previewLoading ? '⏳' : '👁'} Podgląd XML
-        </button>
-
-        {/* Zbiorczy eksport wszystkich aktywnych ostrzeżeń jako ZIP z CAP XML */}
-        <button className="btn btn-secondary" style={{ width:'100%', marginBottom: 6, marginTop: 8, fontSize: 11 }}
-          onClick={async () => {
-            try {
-              onStatusChange({ msg: 'Generuję zbiorczy CAP XML...', type: 'info' });
-              const res = await fetch(`${API}/export/cap-xml?status_filter=active,pending`);
-              if (!res.ok) throw new Error('Brak ostrzeżeń lub błąd serwera');
-              const blob = await res.blob();
-              const count = res.headers.get('X-Warnings-Count') || '?';
-              const a = document.createElement('a');
-              a.href = URL.createObjectURL(blob);
-              a.download = res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] || 'cap_export.zip';
-              a.click();
-              URL.revokeObjectURL(a.href);
-              onStatusChange({ msg: `Pobrano ${count} plików CAP XML`, type: 'success' });
-            } catch(e) { onStatusChange({ msg: `Błąd eksportu: ${e.message}`, type: 'error' }); }
-          }}
-          title="ZIP ze wszystkimi aktywnymi ostrzeżeniami jako pliki CAP XML">
-          📦 Eksportuj wszystkie CAP XML
+        {/* Akcje drugorzędne — jeden zwarty rząd, żeby nie zabierać miejsca edycji */}
+        <div style={{ display:'flex', gap:6, marginBottom:6 }}>
+          <button className="btn btn-secondary" style={{ flex:1, fontSize:11, padding:'6px 4px' }}
+            onClick={handlePreviewXML} disabled={previewLoading || !level}
+            title="Podgląd CAP XML przed pobraniem">
+            {previewLoading ? '⏳' : '👁'} Podgląd
+          </button>
+          <button className="btn btn-secondary" style={{ flex:1, fontSize:11, padding:'6px 4px' }}
+            onClick={() => handleDownloadXML('per_county')} disabled={saving || !level || selectedCounties.length === 0}
+            title="Osobny plik XML dla każdego powiatu — format IMGW">
+            🗂 ZIP/powiat{selectedCounties.length ? ` (${selectedCounties.length})` : ''}
+          </button>
+          <button className="btn btn-secondary" style={{ flex:1, fontSize:11, padding:'6px 4px' }}
+            onClick={async () => {
+              try {
+                onStatusChange({ msg: 'Generuję zbiorczy CAP XML...', type: 'info' });
+                const res = await fetch(`${API}/export/cap-xml?status_filter=active,pending`);
+                if (!res.ok) throw new Error('Brak ostrzeżeń lub błąd serwera');
+                const blob = await res.blob();
+                const count = res.headers.get('X-Warnings-Count') || '?';
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] || 'cap_export.zip';
+                a.click();
+                URL.revokeObjectURL(a.href);
+                onStatusChange({ msg: `Pobrano ${count} plików CAP XML`, type: 'success' });
+              } catch(e) { onStatusChange({ msg: `Błąd eksportu: ${e.message}`, type: 'error' }); }
+            }}
+            title="ZIP ze wszystkimi aktywnymi (i oczekującymi) ostrzeżeniami jako pliki CAP XML">
+            📦 Wszystkie
+          </button>
+        </div>
+        {/* Import CAP — drobny link na dole, rzadko używany */}
+        <button className="btn btn-secondary" style={{ width:'100%', marginBottom: 4, fontSize: 10.5, opacity: 0.6, padding:'4px' }}
+          onClick={() => fileInputRef.current?.click()}
+          title="Wczytaj pojedynczy plik CAP XML do formularza (np. szablon/próbka)">
+          📂 Importuj CAP z pliku
         </button>
       {!level && (
           <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', fontFamily: 'var(--font-mono)' }}>
@@ -1340,6 +1815,57 @@ export default function EditorPanel({ selectedCounties, drawnPolygon, onWarningC
             </div>
 
             {/* Stopka */}
+      {/* B11: uzgodnienie importu z IMGW API */}
+            {importPlan && (() => {
+        const p = importPlan.plan || {};
+        const sum = p.summary || {};
+        const items = (p.items || []).filter(i => i.kind === 'supersedes' || i.kind === 'needs_decision');
+        return (
+          <div style={{ margin: '0 16px 10px', padding: 10, borderRadius: 'var(--radius-md)',
+            background: 'rgba(249,115,22,0.10)', border: '1px solid var(--warn-2, #f97316)' }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--warn-2, #f97316)', marginBottom: 6 }}>
+              🔄 Import z IMGW API — uzgodnienie stanu
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 7 }}>
+              Nowe: <b>{sum.new || 0}</b> · już w bazie: <b>{sum.duplicate || 0}</b> ·
+              {' '}nowsza wersja istniejących: <b>{sum.supersedes || 0}</b>
+              {sum.needs_decision ? <> · <span style={{color:'var(--level-3,#ef4444)'}}>wymaga decyzji: <b>{sum.needs_decision}</b></span></> : null}
+            </div>
+            <div style={{ maxHeight: 150, overflowY: 'auto', marginBottom: 8 }}>
+              {items.map((i, k) => (
+                <div key={k} style={{ fontSize: 10, color: 'var(--text-primary)', padding: '3px 0',
+                  borderBottom: '1px solid var(--border)' }}>
+                  <b>{(i.phenomenon || '').replace(/_/g,' ')} {i.level}°</b> · {i.counties_count} pow.
+                  {' · '}{i.onset ? new Date(i.onset).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '?'}
+                  {' → '}{i.expires ? new Date(i.expires).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '?'}
+                  <div style={{ color: i.kind === 'needs_decision' ? 'var(--level-3,#ef4444)' : 'var(--text-muted)' }}>
+                    {i.kind === 'needs_decision'
+                      ? '⚠ koliduje z ostrzeżeniem utworzonym lub zmienionym ręcznie'
+                      : '↻ zastąpi starszą wersję z API'}
+                    {i.collides_with?.[0]?.counties?.length
+                      ? ` — ${i.collides_with[0].counties.slice(0,4).join(', ')}${i.collides_with[0].counties_count > 4 ? ' …' : ''}` : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-primary" style={{ fontSize: 10.5, padding: '4px 10px' }}
+                onClick={() => { const w = importPlan.warnings; setImportPlan(null); handleSaveIMGW(w, 'replace'); }}
+                title="Odwołaj kolidujące i zapisz stan z API jako aktualny">
+                ↻ Zastąp stanem z API
+              </button>
+              <button type="button" className="btn btn-secondary" style={{ fontSize: 10.5, padding: '4px 10px' }}
+                onClick={() => { const w = importPlan.warnings; setImportPlan(null); handleSaveIMGW(w, 'skip'); }}
+                title="Zapisz tylko bezkolizyjne, moje ostrzeżenia zostaw nietknięte">
+                ✋ Zachowaj moje, dodaj resztę
+              </button>
+              <button type="button" className="btn btn-secondary" style={{ fontSize: 10.5, padding: '4px 10px' }}
+                onClick={() => setImportPlan(null)}>Anuluj</button>
+            </div>
+          </div>
+        );
+      })()}
+
             {imgwPreview.warnings.length > 0 && (
               <div style={{padding:'12px 16px', borderTop:'1px solid var(--border)',
                 display:'flex', gap:8, justifyContent:'flex-end'}}>

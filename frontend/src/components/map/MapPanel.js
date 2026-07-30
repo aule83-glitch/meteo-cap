@@ -6,9 +6,26 @@ const MA_LEVEL_COLORS = { 1: '#facc15', 2: '#f97316', 3: '#ef4444' };
 const MA_COUNTRY_BORDER = { DE:'#3b82f6', CZ:'#22c55e', SK:'#a78bfa', UA:'#fbbf24', LT:'#fb923c',
   RU_KGD:'#9ca3af', BY:'#9ca3af' };  // RU/BY — szare, poglądowe
 
-const API = import.meta.env.VITE_API_URL || '/api';
+// Adres API względem BASE_URL — aplikacja działa i pod /osmet-dev/, i bezpośrednio po porcie.
+const API = import.meta.env.VITE_API_URL || ((import.meta.env.BASE_URL || '/') + 'api');
 
 const VOIV_STYLE   = { color: 'rgba(59,130,246,0.8)', fillColor: 'transparent', fillOpacity: 0, weight: 1.8 };
+// Kolejność ostrzeżeń: ręczna (lista boczna) > stopień malejąco > onset.
+// Indeks 0 = wierzch mapy (wygrywa kolor powiatu, label na wierzchu, pierwszy w cyklu).
+function orderActiveWarnings(warnings, warnOrder) {
+  const act = (warnings || []).filter(w =>
+    (w.status === 'active' || w.status === 'pending') &&
+    w.is_active_leaf !== false && !w.is_cancelled);
+  const pos = new Map((warnOrder || []).map((id, i) => [id, i]));
+  return act.slice().sort((a, b) => {
+    const pa = pos.has(a.id) ? pos.get(a.id) : Infinity;
+    const pb = pos.has(b.id) ? pos.get(b.id) : Infinity;
+    if (pa !== pb) return pa - pb;
+    if ((b.level || 0) !== (a.level || 0)) return (b.level || 0) - (a.level || 0);
+    return String(a.onset || '').localeCompare(String(b.onset || ''));
+  });
+}
+
 const COUNTY_STYLE = { color: 'rgba(59,130,246,0.25)', fillColor: 'rgba(59,130,246,0.03)', fillOpacity: 1, weight: 0.6 };
 const SEL_STYLE    = { color: '#38bdf8', fillColor: 'rgba(56,189,248,0.25)', fillOpacity: 1, weight: 2.0 };
 const POLY_STYLE   = { color: '#06b6d4', fillColor: 'rgba(6,182,212,0.1)', fillOpacity: 1, weight: 2 };
@@ -72,6 +89,15 @@ export default function MapPanel({
   onPolygonDrawn, selectedCounties, warnings,
   onClear, onCountyToggle,
   highlightedWarningId,
+  editingWarningId,
+  warnOrder = [],
+  onWarnOrderChange,
+  onUndoSelection,
+  onRedoSelection,
+  conflictCounties = [],
+  draftContext = null,
+  onRequestEdit,
+  onRequestCopy,
   onHighlightWarning,
   showWarningLabels = true,
   // MA state z App.js — gdy dostarczone, MapPanel nie fetcha samodzielnie
@@ -83,6 +109,7 @@ export default function MapPanel({
   const warningsRef  = useRef([]);   // aktualne warnings dostępne w starych closure'ach (click handler)
   const onCountyToggleRef = useRef(null);
   const onHighlightWarningRef = useRef(null);
+  const warnOrderRef = useRef([]);
   const pickModeRef = useRef(false);  // tryb klikania powiatów do edycji
   const leafletMap   = useRef(null);
   const drawnItems   = useRef(null);
@@ -102,6 +129,7 @@ export default function MapPanel({
   const [layersLoaded, setLayersLoaded] = useState(false);
   const [activeBase, setActiveBase] = useState(getMapState().tileLayerId);
   const [showPicker, setShowPicker] = useState(false);
+  const [warnListOpen, setWarnListOpen] = useState(true);   // boczna lista ostrzeżeń (warstwy)
   const [L, setL] = useState(null);
   const [maEnabled, setMaEnabled] = useState(() => {
     if (maEnabledProp !== undefined) return maEnabledProp;
@@ -140,8 +168,9 @@ export default function MapPanel({
     warningsRef.current = warnings || [];
     onCountyToggleRef.current = onCountyToggle;
     onHighlightWarningRef.current = onHighlightWarning;
+    warnOrderRef.current = warnOrder;
     pickModeRef.current = pickMode;
-  }, [warnings, onCountyToggle, onHighlightWarning, pickMode]);
+  }, [warnings, onCountyToggle, onHighlightWarning, pickMode, warnOrder]);
 
   // Inicjalizacja mapy
   useEffect(() => {
@@ -265,12 +294,9 @@ export default function MapPanel({
             }
 
             // Tryb domyślny — klik na powiat = cykl podświetleń ostrzeżeń
-            const currentWarnings = warningsRef.current || [];
-            const activeWarnings = currentWarnings.filter(w =>
-              w.is_active_leaf !== false && !w.is_cancelled &&
-              (w.status === 'active' || w.status === 'pending') &&
-              (w.counties || []).some(c => c.id === countyId)
-            );
+            // Kolejność cyklu = kolejność warstw na mapie (lista boczna decyduje o wierzchu)
+            const activeWarnings = orderActiveWarnings(warningsRef.current, warnOrderRef.current)
+              .filter(w => (w.counties || []).some(c => String(c.id) === String(countyId)));
             const cycle = cycleRef.current;
 
             if (activeWarnings.length === 0) {
@@ -308,32 +334,8 @@ export default function MapPanel({
     finally { setLoading(false); setLayersLoaded(true); }
   };
 
-  // Podświetl zaznaczone powiaty (cyjan) — nie kasuje kolorów ostrzeżeń
-  useEffect(() => {
-    // Dla każdego powiatu: przywróć kolor ostrzeżenia lub bazowy
-    Object.keys(countyLayers.current).forEach(countyId => {
-      const layer = countyLayers.current[countyId];
-      if (!layer) return;
-      const activeWarning = warnings
-        .filter(w => w.status === 'active' || w.status === 'pending')
-        .find(w => (w.counties || []).some(c => String(c.id) === String(countyId)));
-      if (activeWarning) {
-        const color = LEVEL_COLORS[activeWarning.level] || '#facc15';
-        const isDashed = activeWarning.status === 'pending';
-        layer.setStyle({
-          color, fillColor: color, fillOpacity: 0.35,
-          weight: isDashed ? 1.5 : 2, dashArray: isDashed ? '6,4' : null,
-        });
-      } else {
-        layer.setStyle(COUNTY_STYLE);
-      }
-    });
-    // Nałóż cyjan na zaznaczone
-    selectedCounties.forEach(c => {
-      const l = countyLayers.current[c.id];
-      if (l) l.setStyle(SEL_STYLE);
-    });
-  }, [selectedCounties, warnings]);
+  // dawny osobny efekt selekcji usunięty — malowanie zunifikowane w jednym efekcie niżej,
+  //  żeby dwa mechanizmy nie walczyły o te same warstwy różnymi regułami
 
   // Podświetl ostrzeżenie z historii/edytora
   useEffect(() => {
@@ -362,41 +364,111 @@ export default function MapPanel({
     });
   }, [highlightedWarningId, warnings, L]);
 
-  // Agregowane labele i markery ostrzeżeń
+  // MALOWANIE POWIATÓW — jedna reguła: powiat maluje NAJWYŻSZY stopień spośród
+  // pokrywających go ostrzeżeń; nakładanie sygnalizuje jasna, grubsza obwódka.
+  // W trybie Update (editingWarningId) pozostałe ostrzeżenia są przygaszone.
+  // Markery-labele żyją w OSOBNYM efekcie niżej — klik powiatu (selekcja)
+  // przemalowuje tylko poligony, bez odtwarzania markerów (bez migotania).
   useEffect(() => {
     const map = leafletMap.current;
     if (!map || !L) return;
 
-    // Usuń stare markery (labele)
-    warnLayers.current.forEach(l => { try { map.removeLayer(l); } catch (e) {} });
-    warnLayers.current = [];
-
     // Reset wszystkich powiatów do bazowego stylu
     Object.values(countyLayers.current).forEach(l => l.setStyle(COUNTY_STYLE));
 
-    warnings
-      .filter(w => w.status === 'active' || w.status === 'pending')
-      .forEach(w => {
+    const ordered = orderActiveWarnings(warnings, warnOrder);
+    const selectedIds = new Set((selectedCounties || []).map(c => String(c.id)));
+
+    // 1. Per-powiat: zwycięzca = ostrzeżenie NAJWYŻEJ w kolejności warstw
+    //    (lista boczna; domyślnie najwyższy stopień). Licz nakładanie.
+    const best = {};  // countyId -> { level, pending, count, wid }
+    ordered.forEach(w => {
+      (w.counties || []).forEach(c => {
+        const id = String(c.id);
+        const cur = best[id];
+        if (!cur) best[id] = { level: w.level, pending: w.status === 'pending', count: 1, wid: w.id };
+        else cur.count += 1;   // pierwszy w kolejności już wygrał — tylko licznik nakładania
+      });
+    });
+
+    // 2. Pomaluj powiaty wg zwycięzcy
+    Object.entries(best).forEach(([id, b]) => {
+      const layer = countyLayers.current[id];
+      if (!layer) return;
+      const color = LEVEL_COLORS[b.level] || '#facc15';
+      // przygaszenie: trwa edycja innego ostrzeżenia, a powiat nie należy do edytowanego obszaru (selekcji)
+      const dimmed = editingWarningId && b.wid !== editingWarningId && !selectedIds.has(id);
+      layer.setStyle({
+        color: LEVEL_BORDERS[b.level] || color,
+        fillColor: color,
+        fillOpacity: dimmed ? 0.10 : 0.38,
+        weight: b.pending ? 1.5 : 2.5,
+        dashArray: b.pending ? '6,4' : null,
+        opacity: dimmed ? 0.35 : 1,
+      });
+    });
+
+    // B2: powiaty ZAJĘTE przez to samo zjawisko w nachodzącym czasie —
+    // widoczne od razu, zanim synoptyk zacznie klikać (dotąd dowiadywał się
+    // dopiero z błędu 409 po zaznaczeniu kilkudziesięciu powiatów).
+    if (draftContext && draftContext.phenomenon && draftContext.onset && draftContext.expires) {
+      const o = Date.parse(draftContext.onset), e = Date.parse(draftContext.expires);
+      if (!isNaN(o) && !isNaN(e) && e > o) {
+        const busy = new Set();
+        warnings.forEach(w => {
+          if (w.id === draftContext.excludeId) return;
+          if (w.phenomenon !== draftContext.phenomenon) return;
+          if (!(w.status === 'active' || w.status === 'pending')) return;
+          const wo = w.onset ? Date.parse(w.onset) : null;
+          const we = w.expires ? Date.parse(w.expires) : null;
+          if (wo == null || we == null) return;
+          if (o < we && wo < e) (w.counties || []).forEach(c => busy.add(String(c.id)));
+        });
+        busy.forEach(id => {
+          const l = countyLayers.current[id];
+          if (l) l.setStyle({ color: '#e8eef6', weight: 2, dashArray: '3,3', fillOpacity: 0.45 });
+        });
+      }
+    }
+
+    // Przywróć cyjan dla zaznaczonych powiatów edycji (priorytet nad kolorem ostrzeżenia)
+    selectedCounties.forEach(c => {
+      const l = countyLayers.current[c.id];
+      if (l) l.setStyle(SEL_STYLE);
+    });
+    // B3: powiaty kolidujące — najbardziej rzucający się w oczy styl, na wierzchu
+    (conflictCounties || []).forEach(id => {
+      const l = countyLayers.current[String(id)];
+      if (l) {
+        l.setStyle({ color: '#ef4444', weight: 3.5, dashArray: null, fillColor: '#ef4444', fillOpacity: 0.55 });
+        try { l.bringToFront(); } catch (e) {}
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Klucz zamiast obiektu: nowy obiekt o tych samych wartościach nie wywoła
+  // przemalowania całej mapy (380 poligonów).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warnings, selectedCounties, editingWarningId, warnOrder,
+      (conflictCounties || []).join(','),
+      draftContext ? `${draftContext.phenomenon}|${draftContext.onset}|${draftContext.expires}|${draftContext.excludeId}` : '',
+      L, layersLoaded]);
+
+  // MARKERY-LABELE per ostrzeżenie — osobny efekt: odtwarzane tylko przy zmianie
+  // ostrzeżeń / trybu edycji / widoczności, NIE przy każdym kliku powiatu.
+  useEffect(() => {
+    const map = leafletMap.current;
+    if (!map || !L) return;
+    warnLayers.current.forEach(l => { try { map.removeLayer(l); } catch (e) {} });
+    warnLayers.current = [];
+    const ordered = orderActiveWarnings(warnings, warnOrder);
+    ordered
+      .forEach((w, wi) => {
         const color    = LEVEL_COLORS[w.level] || '#facc15';
         const icon     = PHENOMENON_ICONS[w.phenomenon] || '⚠';
         const label    = PHENOMENON_SHORT[w.phenomenon] || w.phenomenon;
         const counties = w.counties || [];
         const isDashed = w.status === 'pending';
-
-        // Koloruj poligony powiatów
-        const borderColor = LEVEL_BORDERS[w.level] || color;
-        counties.forEach(c => {
-          const layer = countyLayers.current[c.id];
-          if (layer) {
-            layer.setStyle({
-              color: borderColor,
-              fillColor: color,
-              fillOpacity: 0.38,
-              weight: isDashed ? 1.5 : 2.5,
-              dashArray: isDashed ? '6,4' : null,
-            });
-          }
-        });
+        const dimmed   = editingWarningId && w.id !== editingWarningId;
 
         // JEDEN label na centroidzie obszaru
         if (!showWarningLabels || counties.length === 0) return;
@@ -421,7 +493,7 @@ export default function MapPanel({
             white-space:nowrap;
             box-shadow:0 2px 8px rgba(0,0,0,0.4);
             display:flex;flex-direction:row;align-items:center;gap:6px;
-            opacity:${isDashed?'0.82':'1'};
+            opacity:${dimmed ? '0.25' : (isDashed ? '0.82' : '1')};
             line-height:1.2;
           ">
             <span style="font-size:18px;line-height:1;flex-shrink:0">${icon}</span>
@@ -438,7 +510,7 @@ export default function MapPanel({
             className: 'ma-warn-label',
             iconAnchor: [0, 18],   // ~połowa wysokości labela (padding 5+5 + font 12*1.2 = ~24px → środek ~12, z marginesem)
           }),
-          zIndexOffset: 400, interactive: true,
+          zIndexOffset: (dimmed ? 250 : 400) + (ordered.length - wi) * 3, interactive: true,
         });
         marker.bindTooltip(
           `<b>${icon} ${label}</b> — Stopień ${w.level}<br>` +
@@ -451,13 +523,18 @@ export default function MapPanel({
 
       });
 
-    // Przywróć cyjan dla zaznaczonych powiatów edycji (priorytet nad kolorem ostrzeżenia)
-    selectedCounties.forEach(c => {
-      const l = countyLayers.current[c.id];
-      if (l) l.setStyle(SEL_STYLE);
-    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [warnings, showWarningLabels, L, layersLoaded]);
+  }, [warnings, editingWarningId, warnOrder, showWarningLabels, L, layersLoaded]);
+
+  // Mapa w kontenerze o zmiennej wysokości (układ mobilny, obrót ekranu):
+  // wymuś przeliczenie rozmiaru, inaczej Leaflet zostaje z nieaktualnymi wymiarami.
+  useEffect(() => {
+    const fix = () => { try { leafletMap.current && leafletMap.current.invalidateSize(); } catch (e) {} };
+    const t = setTimeout(fix, 250);
+    window.addEventListener('orientationchange', fix);
+    window.addEventListener('resize', fix);
+    return () => { clearTimeout(t); window.removeEventListener('orientationchange', fix); window.removeEventListener('resize', fix); };
+  }, [L, layersLoaded]);
 
   // MeteoAlarm — ładuj lokalnie tylko gdy nie ma propsów z App.js
   useEffect(() => {
@@ -502,7 +579,19 @@ export default function MapPanel({
 
     // Zbierz wszystkie ringi per ostrzeżenie (do centroidu)
     // Struktura: [{warning, rings:[...]}]
-    const withRings = maWarnings.map(w => {
+    // B9b: edytor i Status muszą pokazywać TO SAMO. Wcześniej edytor rysował
+    // wszystko, co przyszło z feedu, a Status filtrował po czasie — stąd „w edytorze
+    // tylko wiatr/2, w Statusie wiatr/2 i burze/2".
+    const _now = Date.now(), _horizon = _now + 24 * 3600 * 1000;
+    const maVisible = maWarnings.filter(w => {
+      const o = w.onset ? Date.parse(w.onset) : null;
+      const e = w.expires ? Date.parse(w.expires) : null;
+      if (e != null && e < _now) return false;       // wygasłe
+      if (o != null && o > _horizon) return false;   // dalsza przyszłość
+      return true;
+    });
+
+    const withRings = maVisible.map(w => {
       const rings = [];
       if (w.geocode_geometries && w.geocode_geometries.length > 0) {
         w.geocode_geometries.forEach(gg => geomToRings(gg.geometry).forEach(r => { if (r.length >= 3) rings.push(r); }));
@@ -743,6 +832,11 @@ export default function MapPanel({
   }, [L]);
 
   const selectAll = useCallback(async () => {
+    // B1: „Cała Polska" nadpisuje istniejące zaznaczenie — pytamy, jeśli jest co stracić
+    if (selectedCounties.length > 5 &&
+        !window.confirm(`Zaznaczyć całą Polskę?\n\nObecne zaznaczenie (${selectedCounties.length} powiatów) zostanie zastąpione.\nCtrl+Z cofa.`)) {
+      return;
+    }
     const poly = [[55,14],[55,24.2],[49,24.2],[49,14],[55,14]];
     try {
       const res = await axios.post(`${API}/spatial/counties-in-polygon`, { polygon: poly });
@@ -756,6 +850,19 @@ export default function MapPanel({
     setPickMode(false);
     onClear();
   }, [onClear]);
+
+  // Przenoszenie ostrzeżenia na liście (góra listy = wierzch mapy)
+  const moveWarn = (i, d) => {
+    const ordered = orderActiveWarnings(warnings, warnOrder);
+    const ids = ordered.map(w => w.id);
+    const j = i + d;
+    if (j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    if (onWarnOrderChange) onWarnOrderChange(ids);
+  };
+  const _miniBtn = { background:'transparent', border:'none', color:'#7e93b0', cursor:'pointer', fontSize:8, lineHeight:'9px', padding:'0 3px' };
+  const _actBtn  = { flex:1, fontSize:10, padding:'3px 6px', borderRadius:6, border:'1px solid #3b82f6',
+                     background:'rgba(59,130,246,0.15)', color:'#93c5fd', cursor:'pointer' };
 
   return (
     <div className="map-container">
@@ -811,7 +918,81 @@ export default function MapPanel({
             Wyczyść ({selectedCounties.length})
           </button>
         )}
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button className="map-btn" onClick={() => onUndoSelection && onUndoSelection()}
+            title="Cofnij zmianę zaznaczenia (Ctrl+Z)" style={{ flex: 1, justifyContent: 'center' }}>↶</button>
+          <button className="map-btn" onClick={() => onRedoSelection && onRedoSelection()}
+            title="Ponów (Ctrl+Shift+Z)" style={{ flex: 1, justifyContent: 'center' }}>↷</button>
+        </div>
       </div>
+
+      {/* LISTA OSTRZEŻEŃ — kolejność = warstwy mapy; klik = wyróżnienie (link z mapą) */}
+      {(() => {
+        const ordered = orderActiveWarnings(warnings, warnOrder);
+        if (!ordered.length) return null;
+        return (
+          <div className="map-warnings-list" style={{ position:'absolute', left:10, top:244, zIndex:950, width:238,
+            background:'rgba(13,20,33,0.93)', border:'1px solid #22344e',
+            borderRadius:10, boxShadow:'0 4px 16px rgba(0,0,0,0.45)', overflow:'hidden',
+            maxHeight:'46%', display:'flex', flexDirection:'column' }}>
+            <div onClick={() => setWarnListOpen(o => !o)}
+              style={{ padding:'6px 10px', cursor:'pointer', userSelect:'none', flexShrink:0,
+                fontSize:10.5, fontWeight:700, letterSpacing:'0.06em', color:'#7e93b0',
+                display:'flex', alignItems:'center', gap:6 }}>
+              <span style={{ fontSize:9 }}>{warnListOpen ? '▾' : '▸'}</span>
+              OSTRZEŻENIA ({ordered.length})
+              <span style={{ marginLeft:'auto', fontWeight:400, fontSize:8.5, opacity:0.7 }}>góra = wierzch mapy</span>
+            </div>
+            {warnListOpen && (
+              <div style={{ overflowY:'auto', padding:'0 6px 6px' }}>
+                {ordered.map((w, i) => {
+                  const hl = highlightedWarningId === w.id;
+                  const color = LEVEL_COLORS[w.level] || '#facc15';
+                  const canUpdate = w.is_active_leaf !== false && !w.superseded_by;
+                  return (
+                    <div key={w.id} style={{ marginBottom:4, borderRadius:8,
+                      border: hl ? `1.5px solid ${color}` : '1px solid #22344e',
+                      background: hl ? 'rgba(59,130,246,0.10)' : 'rgba(255,255,255,0.03)' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 6px', cursor:'pointer' }}
+                        onClick={() => onHighlightWarning && onHighlightWarning(hl ? null : w.id)}
+                        title={hl ? 'Kliknij, by odwyróżnić' : 'Kliknij, by wyróżnić na mapie'}>
+                        <span style={{ width:10, height:10, borderRadius:3, background:color, flexShrink:0,
+                          border: w.status === 'pending' ? '1px dashed #fff' : 'none' }} />
+                        <span style={{ fontSize:10.5, color:'#e8eef6', whiteSpace:'nowrap',
+                          overflow:'hidden', textOverflow:'ellipsis', flex:1 }}>
+                          St.{w.level} {PHENOMENON_SHORT[w.phenomenon] || w.phenomenon}
+                          {(w.version || 1) > 1 ? ` v${w.version}` : ''}
+                        </span>
+                        <span style={{ fontSize:8.5, color:'#7e93b0', fontFamily:'monospace', flexShrink:0 }}>
+                          {w.expires ? 'do ' + new Date(w.expires).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''}
+                        </span>
+                        <span style={{ display:'flex', flexDirection:'column', flexShrink:0 }}>
+                          <button onClick={(e) => { e.stopPropagation(); moveWarn(i, -1); }} disabled={i === 0}
+                            style={{ ..._miniBtn, opacity: i === 0 ? 0.25 : 1 }} title="Wyżej (bliżej wierzchu mapy)">▲</button>
+                          <button onClick={(e) => { e.stopPropagation(); moveWarn(i, 1); }} disabled={i === ordered.length - 1}
+                            style={{ ..._miniBtn, opacity: i === ordered.length - 1 ? 0.25 : 1 }} title="Niżej">▼</button>
+                        </span>
+                      </div>
+                      {hl && (
+                        <div style={{ display:'flex', gap:4, padding:'0 6px 6px' }}>
+                          {canUpdate && onRequestEdit && (
+                            <button onClick={() => onRequestEdit(w.id)} style={_actBtn}
+                              title="Wczytaj do edytora jako aktualizację tego ostrzeżenia">✎ Aktualizuj</button>
+                          )}
+                          {onRequestCopy && (
+                            <button onClick={() => onRequestCopy(w.id)} style={{ ..._actBtn, opacity:0.85 }}
+                              title="Zduplikuj jako NOWE ostrzeżenie (zmień stopień/zasięg/czas i zapisz)">⧉ Kopiuj</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Toggle MeteoAlarm (prawy dół) */}
       <div style={{position:'absolute',bottom:12,right:12,zIndex:900,display:'flex',flexDirection:'column',gap:6,alignItems:'flex-end'}}>

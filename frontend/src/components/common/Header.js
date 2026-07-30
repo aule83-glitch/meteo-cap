@@ -1,12 +1,26 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+
+// Adres API względem BASE_URL — dzięki temu aplikacja działa i pod /osmet-dev/,
+// i bezpośrednio po porcie, bez zmiany kodu.
+const API = import.meta.env.VITE_API_URL || ((import.meta.env.BASE_URL || '/') + 'api');
 
 export default function Header({ view, onViewChange, warningsCount, activeCount, pendingCount }) {
+  // Wersja pobierana z backendu (plik VERSION) — jedno źródło prawdy.
+  // Wcześniej numer był wpisany na sztywno i rozjeżdżał się z rzeczywistym buildem.
+  const [appVersion, setAppVersion] = useState(null);
+  useEffect(() => {
+    fetch(`${API}/version`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d && d.version) setAppVersion(d.version); })
+      .catch(() => {});
+  }, []);
+
   return (
     <header className="header">
       <div className="header-logo">
         {/* IMGW-PIB logo — wersja alternatywna (ikona kółka) inline SVG */}
         <img
-          src="/assets/imgw_logo_pl.svg"
+          src={(import.meta.env.BASE_URL || '/') + 'assets/imgw_logo_pl.svg'}
           alt="IMGW-PIB"
           style={{ height: 32, width: 'auto', marginRight: 10, flexShrink: 0 }}
         />
@@ -17,7 +31,18 @@ export default function Header({ view, onViewChange, warningsCount, activeCount,
               fontSize: 10, fontWeight: 600, padding: '2px 6px', marginLeft: 6,
               background: 'rgba(59,130,246,0.15)', color: 'var(--accent-blue)',
               borderRadius: 4, verticalAlign: 'middle'
-            }}>v2.5.8</span>
+            }} title={appVersion ? 'Wersja z pliku VERSION (backend)' : 'Pobieranie wersji…'}>
+              {appVersion ? `v${appVersion}` : '…'}</span>
+            <span
+              title="Narzędzie deweloperskie: służy do rozwijania i testowania nowych koncepcji ostrzeżeń. Nie jest operacyjnym systemem wydawania ostrzeżeń IMGW-PIB."
+              style={{
+                marginLeft: 8, padding: '2px 8px', borderRadius: 999,
+                border: '1px solid var(--warn-2, #f97316)', color: 'var(--warn-2, #f97316)',
+                fontSize: 9.5, fontWeight: 700, letterSpacing: '0.06em',
+                fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', cursor: 'help',
+              }}>
+              WERSJA DEWELOPERSKA
+            </span>
           </div>
           <div className="header-subtitle">IMGW-PIB · CAP 1.2</div>
         </div>

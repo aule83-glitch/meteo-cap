@@ -2,6 +2,9 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig(({command}) => ({
+  // Aplikacja żyje pod prefiksem /osmet-dev/ (apps.container.imgw.ad/osmet-dev/).
+  // Dzięki temu zasoby JS/CSS mają poprawne ścieżki także za reverse proxy.
+  base: '/osmet-dev/',
   plugins: [react({ include: '**/*.{jsx,js}' })],
   esbuild: {
     loader: 'jsx',

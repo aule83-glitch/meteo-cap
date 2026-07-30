@@ -14,7 +14,9 @@ from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
-WEBHOOKS_FILE = "/data/webhooks.json"
+import os as _os
+_DATA_DIR = _os.environ.get("OSMET_DATA_DIR", "/data")
+WEBHOOKS_FILE = _os.path.join(_DATA_DIR, "webhooks.json")
 
 
 def load_webhooks() -> List[dict]:

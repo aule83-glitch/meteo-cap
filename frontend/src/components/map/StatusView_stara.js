@@ -2,8 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { WarningTreeView } from '../editor/WarningsList';
 
-// Adres API względem BASE_URL — aplikacja działa i pod /osmet-dev/, i bezpośrednio po porcie.
-const API = import.meta.env.VITE_API_URL || ((import.meta.env.BASE_URL || '/') + 'api');
+const API = import.meta.env.VITE_API_URL || '/api';
 
 const STATUS_COLORS = {
   active:    { bg: '#ef4444', border: '#ef4444', label: 'Aktywne' },
@@ -49,23 +48,13 @@ export default function StatusView({ warnings, onRefresh, onEdit,
     (w.status === 'active' || w.status === 'pending' || !w.status);
   const [selectedWarning, setSelectedWarning] = useState(null);
   const [treeWarning, setTreeWarning] = useState(null);
-  const [maListOpen, setMaListOpen] = useState(true);  // lokalne chowanie listy MeteoAlarm
-  const [exportVoiv, setExportVoiv] = useState('');   // '' = cała Polska (PNG i PDF)
-  const [pngMode, setPngMode] = useState('metric');   // metric | info-landscape | info-portrait | info-social
   const mapRef = useRef(null);
   const leafletMap = useRef(null);
   const markersRef = useRef([]);
-  const maMarkersRef = useRef([]);
-  const scrubRaf = useRef(null);
   const countyLayers = useRef({});
   const [L, setL] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [layersLoaded, setLayersLoaded] = useState(false);
-  // --- oś czasu (nowy Status) ---
-  const [tlOpen, setTlOpen] = useState(true);        // panel osi czasu otwarty/zwinięty
-  const [scrubTime, setScrubTime] = useState(null);  // ms | null (null = wszystkie aktywne na mapie)
-  const [tlPhenOff, setTlPhenOff] = useState({});    // {phenomenon:true} = pasmo wyłączone filtrem
-  const [tlExpanded, setTlExpanded] = useState({});  // {"phen|woj":true} = rozwinięte do powiatów
 
   useEffect(() => {
     axios.get(`${API}/phenomena/config`)
@@ -119,14 +108,8 @@ export default function StatusView({ warnings, onRefresh, onEdit,
     }));
 
     const filtered = warnings.filter(w =>
-      (filterStatus === 'all' ? true : isActiveWarning(w))
-    ).filter(w => !tlPhenOff[w.phenomenon])               // filtr zjawisk działa też na mapę
-    .filter(w => {
-      if (scrubTime == null) return true;                 // brak suwaka → jak dotąd
-      const o = w.onset ? Date.parse(w.onset) : null;
-      const e = w.expires ? Date.parse(w.expires) : null;
-      return o != null && e != null && o <= scrubTime && scrubTime < e;
-    });
+      filterStatus === 'all' ? true : isActiveWarning(w)
+    );
 
     filtered.forEach(warning => {
       const lvlColor = LEVEL_COLORS[warning.level] || '#facc15';
@@ -177,137 +160,7 @@ export default function StatusView({ warnings, onRefresh, onEdit,
       markersRef.current.push(marker);
 
     });
-  }, [warnings, labelMode, filterStatus, phenomenaConfig, L, layersLoaded, scrubTime, tlPhenOff]);
-
-  // Mapa w kontenerze o zmiennej wysokości (układ mobilny, obrót ekranu):
-  // wymuś przeliczenie rozmiaru, inaczej Leaflet zostaje z nieaktualnymi wymiarami.
-  useEffect(() => {
-    const fix = () => { try { leafletMap.current && leafletMap.current.invalidateSize(); } catch (e) {} };
-    const t = setTimeout(fix, 250);
-    window.addEventListener('orientationchange', fix);
-    window.addEventListener('resize', fix);
-    return () => { clearTimeout(t); window.removeEventListener('orientationchange', fix); window.removeEventListener('resize', fix); };
-  }, [L, layersLoaded]);
-
-  // MeteoAlarm NA MAPIE — obszarowo, jak w edytorze: poligony regionów
-  // (geocode_geometries = rozwiązane kody EMMA_ID, fallback: surowy polygon z CAP)
-  // + mały marker z ikoną zjawiska na centroidzie największego ringu.
-  useEffect(() => {
-    const map = leafletMap.current;
-    if (!map || !L) return;
-    maMarkersRef.current.forEach(m => { try { map.removeLayer(m); } catch(e) {} });
-    maMarkersRef.current = [];
-    if (!maEnabled || !maWarnings.length) return;
-
-    // B9: MeteoAlarm podlega tym samym regułom czasu co ostrzeżenia krajowe.
-    // Bez suwaka pokazujemy to, co obowiązuje TERAZ lub zacznie się w ciągu 24 h
-    // (część krajów publikuje odpowiedniki PRONIEB-ów na cały tydzień — nieczytelne).
-    const nowMs = Date.now();
-    const horizon = nowMs + 24 * 3600 * 1000;
-    const inWindow = (w) => {
-      const o = w.onset ? Date.parse(w.onset) : null;
-      const e = w.expires ? Date.parse(w.expires) : null;
-      if (scrubTime != null) {
-        if (o == null) return true;
-        return o <= scrubTime && (e == null || scrubTime < e);
-      }
-      if (e != null && e < nowMs) return false;        // wygasłe
-      if (o != null && o > horizon) return false;      // dalsza przyszłość
-      return true;
-    };
-    const visible = maWarnings.filter(w => !tlPhenOff[w.phenomenon]).filter(inWindow);
-    if (!visible.length) return;
-
-    const MA_LVL = { 1: '#facc15', 2: '#f97316', 3: '#ef4444' };
-    const geomToRings = (geometry) => {
-      if (!geometry) return [];
-      if (geometry.type === 'Polygon') return [geometry.coordinates[0].map(c => [c[1], c[0]])];
-      if (geometry.type === 'MultiPolygon') return geometry.coordinates.map(poly => poly[0].map(c => [c[1], c[0]]));
-      return [];
-    };
-    const FALLBACK_CENTERS = {
-      DE:[51.2,10.5], CZ:[49.8,15.5], SK:[48.7,19.7], LT:[55.9,23.9],
-      BY:[53.7,28.0], UA:[49.0,32.0], RU_KGD:[54.7,20.5], SE:[59.3,14.5],
-    };
-
-    const groups = {};
-    visible.forEach(w => {
-      const color = MA_LVL[w.level] || '#facc15';
-      const flag  = w.country_flag || '';
-      const tip = `${flag} <b>${w.country_name || w.country || ''}</b><br>` +
-        `${w.event || w.phenomenon || '—'} — St.${w.level}` +
-        (w.onset || w.expires
-          ? `<br><small>${w.onset ? new Date(w.onset).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '…'} → ${w.expires ? new Date(w.expires).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '…'}</small>` : '') +
-        (w.political_caution ? `<br><span style="font-size:9px;opacity:0.65">⚠ ${w.source_note || 'Dane poza MeteoAlarm/EUMETNET'}</span>` : '');
-
-      // 1. Zbierz ringi geometrii (jak w edytorze)
-      const rings = [];
-      if (w.geocode_geometries && w.geocode_geometries.length > 0) {
-        w.geocode_geometries.forEach(gg => geomToRings(gg.geometry).forEach(r => { if (r.length >= 3) rings.push(r); }));
-      } else if (w.polygon && w.polygon.length >= 3) {
-        rings.push(w.polygon.map(p => [p[1], p[0]]));
-      }
-
-      // 2. Poligony — kreskowany kontur, delikatne wypełnienie w kolorze stopnia
-      rings.forEach(ring => {
-        const poly = L.polygon(ring, {
-          color, weight: 1.1, dashArray: '4,5',
-          fillColor: color, fillOpacity: 0.14,
-        });
-        poly.bindTooltip(tip, { className: 'map-county-tooltip', sticky: true });
-        poly.addTo(map);
-        maMarkersRef.current.push(poly);
-      });
-
-      // 3. Zapamiętaj pozycję dla ZBIORCZEGO markera regionu (grupowanie niżej).
-      //    Wcześniej każdy wpis dawał własną ikonę — przy kilkudziesięciu ostrzeżeniach
-      //    robiła się z tego nieczytelna sypka chmura kółek.
-      let clat, clon;
-      if (rings.length) {
-        const big = rings.reduce((a, b) => (b.length > a.length ? b : a), rings[0]);
-        clat = big.reduce((s2, pt) => s2 + pt[0], 0) / big.length;
-        clon = big.reduce((s2, pt) => s2 + pt[1], 0) / big.length;
-      } else {
-        const fc = FALLBACK_CENTERS[w.country] || FALLBACK_CENTERS[w.country_code];
-        if (!fc) return;
-        [clat, clon] = fc;
-      }
-      const gkey = (w.emma_codes && w.emma_codes.length ? w.emma_codes.join(',') : w.area_desc) + '|' + w.country;
-      const g = groups[gkey] || (groups[gkey] = {
-        lat: clat, lon: clon, country: w.country, flag: w.country_flag || '',
-        name: w.area_desc || w.country_name || '', items: [], max: 0,
-      });
-      g.items.push(w);
-      if ((w.level || 0) > g.max) g.max = w.level || 0;
-    });
-
-    // 4. Jedna ikona na region: najwyższy stopień + licznik, gdy ostrzeżeń jest więcej
-    Object.values(groups).forEach(g => {
-      const color = MA_LVL[g.max] || '#facc15';
-      const top = g.items.slice().sort((a, b) => (b.level || 0) - (a.level || 0))[0];
-      const icon = (phenomenaConfig[top.phenomenon]?.icon) || '⚠';
-      const badge = g.items.length > 1
-        ? `<span style="position:absolute;top:-5px;right:-5px;background:#0b1320;color:#e8eef6;
-             border:1px solid ${color};border-radius:999px;font-size:8px;line-height:1;
-             padding:1px 3px;font-family:monospace">${g.items.length}</span>` : '';
-      const html = `<div style="position:relative;background:${color};border:2px solid rgba(255,255,255,0.6);
-        border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;
-        font-size:12px;line-height:1;box-shadow:0 1px 5px rgba(0,0,0,0.45)">${icon}${badge}</div>`;
-      const lines = g.items
-        .slice().sort((a, b) => (b.level || 0) - (a.level || 0))
-        .map(w => `• St.${w.level} ${w.event || w.phenomenon || ''}` +
-          (w.onset || w.expires
-            ? `<br><span style="opacity:.7">&nbsp;&nbsp;${w.onset ? new Date(w.onset).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '…'} → ${w.expires ? new Date(w.expires).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '…'}</span>` : ''))
-        .join('<br>');
-      const marker = L.marker([g.lat, g.lon], {
-        icon: L.divIcon({ html, className: '', iconAnchor: [11, 11] }),
-        zIndexOffset: 300 + g.max * 10, interactive: true,
-      });
-      marker.bindTooltip(`${g.flag} <b>${g.name}</b><br>${lines}`, { className: 'map-county-tooltip' });
-      marker.addTo(map);
-      maMarkersRef.current.push(marker);
-    });
-  }, [maWarnings, maEnabled, L, layersLoaded, phenomenaConfig, scrubTime, tlPhenOff]);
+  }, [warnings, labelMode, filterStatus, phenomenaConfig, L, layersLoaded]);
 
   const handleExportPNG = useCallback(async () => {
     setExporting(true);
@@ -316,79 +169,37 @@ export default function StatusView({ warnings, onRefresh, onEdit,
       const params = new URLSearchParams({
         status_filter: filterStatus === 'all' ? 'active,pending,expired' : 'active,pending',
       });
-      if (exportVoiv) params.set('voivodeship', exportVoiv);
-      if (pngMode !== 'metric') {
-        params.set('mode', 'infographic');
-        params.set('orientation', pngMode.replace('info-', '').replace('-plain', ''));
-        if (pngMode.endsWith('-plain')) params.set('facets', 'false');
-      }
       const res = await fetch(`${API}/export/png?${params}`);
-      if (!res.ok) {
-        let msg = `HTTP ${res.status}`;
-        try { const j = await res.json(); if (j.detail) msg = j.detail; } catch (e) {}
-        throw new Error(msg);
-      }
+      if (!res.ok) throw new Error('Backend error: ' + res.status);
       const blob = await res.blob();
-      const suffix = (pngMode === 'metric' ? '_metryczka' : '_infografika')
-        + (exportVoiv ? '_' + exportVoiv.toLowerCase().replace(/\s+/g, '-') : '');
+      const fallback = res.headers.get('X-Fallback-Format');
+      const ext = fallback === 'svg' ? 'svg' : 'png';
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `imgw-osmet${suffix}_${new Date().toISOString().slice(0,10)}.png`;
+      a.download = `imgw-osmet_${new Date().toISOString().slice(0,10)}.${ext}`;
       a.click();
       URL.revokeObjectURL(a.href);
     } catch(e) {
       console.error('Export PNG error:', e);
-      alert(`Nie udało się wygenerować PNG: ${e.message}`);
     } finally {
       setExporting(false);
     }
-  }, [filterStatus, exportVoiv, pngMode]);
+  }, [filterStatus]);
 
   const activeCount  = warnings.filter(w => isActiveWarning(w)).length;
   const pendingCount = warnings.filter(w => w.status === 'pending' && isActiveWarning(w)).length;
 
   const handleExportPDF = async (lang = 'pl') => {
     try {
-      const q = new URLSearchParams({ lang });
-      if (exportVoiv) q.set('voivodeship', exportVoiv);
-      const res = await axios.get(`${API}/export/pdf?${q}`, { responseType: 'blob' });
+      const res = await axios.get(`${API}/export/pdf?lang=${lang}`, { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement('a');
       a.href = url;
-      a.download = `meteocap_raport${exportVoiv?'_'+exportVoiv.toLowerCase().replace(/\s+/g,'-'):''}${lang==='en'?'_en':''}_${new Date().toISOString().slice(0,10)}.pdf`;
+      a.download = `meteocap_raport${lang==='en'?'_en':''}_${new Date().toISOString().slice(0,10)}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
     } catch(e) { alert(`Błąd PDF: ${e.message}`); }
   };
-
-  // --- wyprowadzenie osi czasu z aktywnych ostrzeżeń (read-only) ---
-  const tl = (() => {
-    const act = warnings.filter(isActiveWarning);
-    const ws = act.filter(w => w.onset && w.expires && (w.counties || []).length);
-    const skipped = act.length - ws.length;   // aktywne, ale bez czasu/powiatów — jawnie raportowane
-    if (!ws.length) return null;
-    let t0 = Infinity, t1 = -Infinity;
-    ws.forEach(w => { t0 = Math.min(t0, Date.parse(w.onset)); t1 = Math.max(t1, Date.parse(w.expires)); });
-    const bands = {};
-    ws.forEach(w => {
-      const ph = w.phenomenon;
-      const band = bands[ph] = bands[ph] || { phen: ph, voiv: {} };
-      const seg = { level: w.level, o: Date.parse(w.onset), e: Date.parse(w.expires), pending: w.status === 'pending' };
-      const byVoiv = {};
-      (w.counties || []).forEach(c => { (byVoiv[c.voiv_name || '—'] ||= []).push(c); });
-      Object.entries(byVoiv).forEach(([v, cs]) => {
-        const vo = band.voiv[v] = band.voiv[v] || { segs: [], counties: {} };
-        vo.segs.push(seg);
-        cs.forEach(c => {
-          const co = vo.counties[c.id] = vo.counties[c.id] || { name: c.name, segs: [] };
-          co.segs.push(seg);
-        });
-      });
-    });
-    return { t0, t1, span: (t1 - t0) || 1, bands, skipped };
-  })();
-  const tlPct = (ms) => tl ? ((ms - tl.t0) / tl.span) * 100 : 0;
-  const tlTicks = tl ? Array.from({ length: 7 }, (_, i) => tl.t0 + (tl.span * i) / 6) : [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -453,30 +264,6 @@ export default function StatusView({ warnings, onRefresh, onEdit,
           📄 PDF EN
         </button>
 
-        <select value={exportVoiv} onChange={e => setExportVoiv(e.target.value)}
-          title="Zakres eksportu PNG i PDF"
-          style={{ padding: '4px 8px', borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--border)', background: 'var(--bg-elevated)',
-            color: exportVoiv ? 'var(--text-accent)' : 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}>
-          <option value="">🇵🇱 Cała Polska</option>
-          {[...new Set(warnings.flatMap(w => (w.counties || []).map(c => c.voiv_name)).filter(Boolean))]
-            .sort((a, b) => a.localeCompare(b, 'pl'))
-            .map(v => <option key={v} value={v}>{v}</option>)}
-        </select>
-
-        <select value={pngMode} onChange={e => setPngMode(e.target.value)}
-          title="Format grafiki PNG"
-          style={{ padding: '4px 8px', borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--border)', background: 'var(--bg-elevated)',
-            color: 'var(--text-secondary)', fontSize: 11, cursor: 'pointer' }}>
-          <option value="metric">📋 Metryczka</option>
-          <option value="info-landscape">📰 Infografika — poziomo</option>
-          <option value="info-portrait">📄 Infografika — pionowo (A4)</option>
-          <option value="info-social">📱 Infografika — 4:5</option>
-          <option value="info-landscape-plain">🗺 Sama mapa — poziomo</option>
-          <option value="info-portrait-plain">🗺 Sama mapa — pionowo</option>
-        </select>
-
         <button onClick={handleExportPNG} disabled={exporting}
           style={{
             padding: '4px 12px', borderRadius: 'var(--radius-sm)',
@@ -491,146 +278,6 @@ export default function StatusView({ warnings, onRefresh, onEdit,
       {/* Mapa */}
       <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
         <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
-
-        {/* ===== OŚ CZASU OSTRZEŻEŃ (nowy Status) — zwijana nakładka u dołu mapy ===== */}
-        {tl && (
-          <div style={{
-            position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 900,
-            background: 'var(--bg-surface)', borderTop: '1px solid var(--border-active)',
-            boxShadow: '0 -4px 24px rgba(0,0,0,0.5)',
-            maxHeight: tlOpen ? '44%' : 32, transition: 'max-height .2s ease',
-            display: 'flex', flexDirection: 'column',
-          }}>
-            {/* nagłówek + filtr per zjawisko + stan suwaka */}
-            <div onClick={() => setTlOpen(o => !o)}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 12px',
-                cursor: 'pointer', flexShrink: 0, userSelect: 'none' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em',
-                color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                {tlOpen ? '▾' : '▸'} OŚ CZASU
-              </span>
-              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
-                {Object.keys(tl.bands).map(ph => {
-                  const on = !tlPhenOff[ph];
-                  return (
-                    <button key={ph} onClick={() => setTlPhenOff(s => ({ ...s, [ph]: on }))}
-                      title="Filtr pasma zjawiska"
-                      style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10.5, cursor: 'pointer',
-                        border: '1px solid ' + (on ? 'var(--accent-blue)' : 'var(--border)'),
-                        background: on ? 'rgba(59,130,246,0.15)' : 'var(--bg-elevated)',
-                        color: on ? 'var(--text-accent)' : 'var(--text-muted)', opacity: on ? 1 : 0.6 }}>
-                      {(phenomenaConfig[ph]?.icon || '⚠')} {PHENOMENON_LABELS_SHORT[ph] || ph}
-                    </button>
-                  );
-                })}
-              </div>
-              <div style={{ flex: 1 }} />
-              {scrubTime != null && (
-                <button onClick={e => { e.stopPropagation(); setScrubTime(null); }}
-                  style={{ padding: '2px 9px', borderRadius: 999, fontSize: 10.5, cursor: 'pointer',
-                    border: '1px solid var(--accent-blue)', background: 'rgba(59,130,246,0.15)', color: 'var(--text-accent)' }}>
-                  ● teraz / wszystkie
-                </button>
-              )}
-              <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                {scrubTime != null
-                  ? '⏱ ' + new Date(scrubTime).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-                  : 'podgląd: wszystkie aktywne'}
-              </span>
-              {tl.skipped > 0 && (
-                <span title="Aktywne ostrzeżenia bez czasu obowiązywania lub bez powiatów — niewidoczne na osi"
-                  style={{ fontSize: 10, color: '#fbbf24', fontFamily: 'var(--font-mono)' }}>
-                  ⚠ poza osią: {tl.skipped}
-                </span>
-              )}
-            </div>
-
-            {tlOpen && (
-              <div style={{ overflowY: 'auto', padding: '0 12px 10px' }}>
-                {/* oś + suwak (offset 160px = szerokość etykiet wierszy) */}
-                <div style={{ display: 'flex', alignItems: 'center', height: 16 }}>
-                  <div style={{ width: 160, flexShrink: 0 }} />
-                  <div style={{ position: 'relative', flex: 1, height: 16 }}>
-                    {tlTicks.map((t, i) => (
-                      <span key={i} style={{ position: 'absolute', left: tlPct(t) + '%', transform: 'translateX(-50%)',
-                        fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-                        {new Date(t).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit' }).replace(',', '')}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
-                  <div style={{ width: 160, flexShrink: 0, fontSize: 10, color: 'var(--text-muted)' }}>przewiń czas →</div>
-                  <input type="range" min={tl.t0} max={tl.t1} step={900000} value={scrubTime ?? tl.t0}
-                    onChange={e => {
-                      // throttle do klatki — przy każdym kroku przemalowuje się cała mapa,
-                      // bez tego przeciąganie potrafiło się zacinać
-                      const v = +e.target.value;
-                      if (scrubRaf.current) cancelAnimationFrame(scrubRaf.current);
-                      scrubRaf.current = requestAnimationFrame(() => setScrubTime(v));
-                    }} style={{ flex: 1 }} />
-                </div>
-
-                {/* pasma per zjawisko → wiersze województw → (rozwijalnie) powiaty */}
-                {Object.values(tl.bands).filter(b => !tlPhenOff[b.phen]).map(band => (
-                  <div key={band.phen} style={{ marginBottom: 8 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', margin: '4px 0 3px' }}>
-                      {(phenomenaConfig[band.phen]?.icon || '⚠')} {PHENOMENON_LABELS_SHORT[band.phen] || band.phen}
-                    </div>
-                    {Object.entries(band.voiv).sort((a, b) => a[0].localeCompare(b[0], 'pl')).map(([voiv, vo]) => {
-                      const key = band.phen + '|' + voiv;
-                      const exp = !!tlExpanded[key];
-                      return (
-                        <div key={key}>
-                          <div style={{ display: 'flex', alignItems: 'center', height: 24 }}>
-                            <div onClick={() => setTlExpanded(s => ({ ...s, [key]: !exp }))}
-                              style={{ width: 160, flexShrink: 0, fontSize: 11, color: 'var(--text-primary)',
-                                cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                              title="Rozwiń/zwiń powiaty">
-                              <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>{exp ? '▾' : '▸'}</span>{voiv}
-                            </div>
-                            <div style={{ position: 'relative', flex: 1, height: 22, background: 'rgba(255,255,255,0.02)', borderRadius: 4 }}>
-                              {vo.segs.map((s, i) => (
-                                <div key={i} title={`stopień ${s.level} · ${new Date(s.o).toLocaleString('pl-PL')} → ${new Date(s.e).toLocaleString('pl-PL')}`}
-                                  style={{ position: 'absolute', top: 3, height: 16, left: tlPct(s.o) + '%',
-                                    width: Math.max(0.6, tlPct(s.e) - tlPct(s.o)) + '%',
-                                    background: LEVEL_COLORS[s.level] || '#facc15', opacity: s.pending ? 0.55 : 0.92,
-                                    borderRadius: 3, border: s.pending ? '1px dashed rgba(255,255,255,0.7)' : 'none' }} />
-                              ))}
-                              {scrubTime != null && (
-                                <div style={{ position: 'absolute', top: 0, bottom: 0, width: 2, background: 'var(--accent-blue)', left: tlPct(scrubTime) + '%' }} />
-                              )}
-                            </div>
-                          </div>
-                          {exp && Object.values(vo.counties).sort((a, b) => a.name.localeCompare(b.name, 'pl')).map((co, ci) => (
-                            <div key={ci} style={{ display: 'flex', alignItems: 'center', height: 20 }}>
-                              <div style={{ width: 160, flexShrink: 0, fontSize: 10, color: 'var(--text-muted)',
-                                paddingLeft: 22, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{co.name}</div>
-                              <div style={{ position: 'relative', flex: 1, height: 18 }}>
-                                {co.segs.map((s, i) => (
-                                  <div key={i} title={`stopień ${s.level} · ${new Date(s.o).toLocaleString('pl-PL')} → ${new Date(s.e).toLocaleString('pl-PL')}`}
-                                    style={{ position: 'absolute', top: 3, height: 12, left: tlPct(s.o) + '%',
-                                      width: Math.max(0.6, tlPct(s.e) - tlPct(s.o)) + '%',
-                                      background: LEVEL_COLORS[s.level] || '#facc15', opacity: s.pending ? 0.5 : 0.85, borderRadius: 2 }} />
-                                ))}
-                                {scrubTime != null && (
-                                  <div style={{ position: 'absolute', top: 0, bottom: 0, width: 1, background: 'var(--accent-blue)', left: tlPct(scrubTime) + '%' }} />
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-                <div style={{ fontSize: 9.5, color: 'var(--text-muted)', marginTop: 4, fontFamily: 'var(--font-mono)' }}>
-                  Przewiń suwak → mapa pokazuje stan kraju o danej godzinie. Wiersz województwa = agregat (RCB/WCZK), rozwiń do powiatów.
-                </div>
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Panel boczny — szczegóły wybranego ostrzeżenia */}
         {selectedWarning && (
@@ -798,15 +445,8 @@ export default function StatusView({ warnings, onRefresh, onEdit,
           padding: '8px 14px 8px',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <div onClick={() => setMaListOpen(o => !o)}
-              style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em',
-                cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 6 }}
-              title={maListOpen ? 'Zwiń listę ostrzeżeń ościennych' : 'Rozwiń listę'}>
-              <span style={{ fontSize: 9, width: 8 }}>{maListOpen ? '▾' : '▸'}</span>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em' }}>
               🌍 METEOALARM — KRAJE OŚCIENNE
-              {!maListOpen && maWarnings.length > 0 && (
-                <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 400 }}>({maWarnings.length})</span>
-              )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {maLastFetch && (
@@ -825,30 +465,6 @@ export default function StatusView({ warnings, onRefresh, onEdit,
             </div>
           </div>
 
-          {maListOpen && (<>
-          {/* B9c: filtr zjawisk dla MeteoAlarm — jak dla ostrzeżeń krajowych.
-              Wspólny stan tlPhenOff, więc filtr działa też na mapę. */}
-          {(() => {
-            const phs = [...new Set(maWarnings.map(w => w.phenomenon).filter(Boolean))];
-            if (phs.length < 2) return null;
-            return (
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', margin: '2px 0 6px' }}>
-                {phs.map(ph => {
-                  const on = !tlPhenOff[ph];
-                  return (
-                    <button key={ph} onClick={() => setTlPhenOff(s2 => ({ ...s2, [ph]: on }))}
-                      title="Filtr zjawiska (działa też na mapę)"
-                      style={{ padding: '1px 7px', borderRadius: 999, fontSize: 9.5, cursor: 'pointer',
-                        border: '1px solid ' + (on ? 'var(--accent-blue)' : 'var(--border)'),
-                        background: on ? 'rgba(59,130,246,0.15)' : 'transparent',
-                        color: on ? 'var(--text-accent)' : 'var(--text-muted)' }}>
-                      {(phenomenaConfig[ph]?.icon || '⚠')} {PHENOMENON_LABELS_SHORT[ph] || ph}
-                    </button>
-                  );
-                })}
-              </div>
-            );
-          })()}
           {maWarnings.length === 0 && !maLoading && (
             <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 0 8px' }}>
               Brak aktywnych ostrzeżeń w krajach ościennych
@@ -860,8 +476,7 @@ export default function StatusView({ warnings, onRefresh, onEdit,
             const MA_LEVEL_COLORS = { 1: '#facc15', 2: '#f97316', 3: '#ef4444' };
             const MA_LEVEL_BORDERS = { 1: '#a16207', 2: '#9a3412', 3: '#7f1d1d' };
             const byCountry = {};
-            // filtr zjawisk (B9c) — lista i mapa mają pokazywać to samo
-            maWarnings.filter(w => !tlPhenOff[w.phenomenon]).forEach(w => {
+            maWarnings.forEach(w => {
               const k = w.country;
               if (!byCountry[k]) byCountry[k] = { name: w.country_name, flag: w.country_flag || '', warnings: [] };
               byCountry[k].warnings.push(w);
@@ -941,7 +556,6 @@ export default function StatusView({ warnings, onRefresh, onEdit,
               );
             });
           })()}
-          </>)}
         </div>
       )}
 

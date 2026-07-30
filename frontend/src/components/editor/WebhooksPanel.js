@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const API = import.meta.env.VITE_API_URL || '/api';
+// Adres API względem BASE_URL — dzięki temu aplikacja działa i pod /osmet-dev/,
+// i bezpośrednio po porcie, bez zmiany kodu.
+const API = import.meta.env.VITE_API_URL || ((import.meta.env.BASE_URL || '/') + 'api');
 
 const LEVEL_LABELS = { 1: 'Wszystkie (st. 1+)', 2: 'St. 2+ (pomarańczowy)', 3: 'Tylko st. 3 (czerwony)' };
 

@@ -16,6 +16,9 @@ class County(BaseModel):
 class WarningCreate(BaseModel):
     phenomenon: str
     params: Dict[str, Any] = {}
+    # Ocena prawdopodobienstwa wystapienia zjawiska na obszarze ostrzezenia.
+    # observed | likely (>50%) | possible (<=50%)  ->  mapowane na CAP certainty.
+    likelihood: str = "likely"
     counties: List[County] = []
     polygon: Optional[List[List[float]]] = None
     onset: str

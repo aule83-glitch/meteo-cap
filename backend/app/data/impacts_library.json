@@ -1,0 +1,2781 @@
+{
+ "oblodzenie": {
+  "1": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - upadki, kontuzje.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się pieszo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Poruszaj się ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  }
+ },
+ "opady_marzniece": {
+  "1": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - upadki, kontuzje.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - raczej krótkotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się pieszo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Poruszaj się ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  },
+  "2": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - upadki, kontuzje.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - także długotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się pieszo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Odwołane kursy.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Połamane gałęzie od ciężaru warstwy gołoledzi.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Spróbuj ograniczyć przebywanie na zewnątrz.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Postaraj się, aby Twój telefon komórkowy i banki energii były naładowane.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Poruszaj się ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o zmianie środka transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  },
+  "3": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - upadki, kontuzje.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - także długotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się pieszo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Odwołane kursy.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Połamane gałęzie od ciężaru warstwy gołoledzi.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Spróbuj ograniczyć przebywanie na zewnątrz.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Postaraj się, aby Twój telefon komórkowy i banki energii były naładowane.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Poruszaj się ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o zmianie środka transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu podróży.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    }
+   ]
+  }
+ },
+ "silny_wiatr": {
+  "1": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - łamiące się gałęzie, konary drzew.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Uszkodzenia budynków - zerwane dachy, elewacje (raczej nieliczne).",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - raczej krótkotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się pieszo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Uszkodzenia lub zniszczenia pojazdów (łamiące się gałęzie, konary drzew).",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Połamane gałęzie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Szkody w parkach, ogrodach i lasach.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Szkody w uprawach (wyleganie).",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Spróbuj ograniczyć przebywanie na zewnątrz.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zbierz luźne rzeczy z podwórka lub balkonu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Poruszaj się ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Unikaj parkowania pod drzewami.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  },
+  "2": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - łamiące się gałęzie, konary drzew.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Uszkodzenia budynków - zerwane dachy, elewacje (także liczne i masowe).",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - także długotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się pieszo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Uszkodzenia lub zniszczenia pojazdów (łamiące się gałęzie, konary drzew).",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Odwołane kursy.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Połamane gałęzie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Powalone drzewa.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Szkody w parkach, ogrodach i lasach.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Szkody w uprawach (wyleganie).",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Spróbuj ograniczyć przebywanie na zewnątrz.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Aktywny wypoczynek na świeżym powietrzu przełóż raczej na inny termin.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zamknij szczelnie okna i drzwi.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Zbierz luźne rzeczy z podwórka lub balkonu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Postaraj się, aby Twój telefon komórkowy i banki energii były naładowane.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zabezpiecz swój dobytek.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Poruszaj się ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Unikaj parkowania pod drzewami.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o zmianie środka transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu podróży.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu prac polowych.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Pomyśl o zabezpieczeniu upraw.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ]
+  },
+  "3": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - łamiące się gałęzie, konary drzew.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Uszkodzenia budynków - zerwane dachy, elewacje (także liczne i masowe).",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Zniszczenia budynków - zawalone stropy, ściany nośne.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - także długotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się pieszo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Uszkodzenia lub zniszczenia pojazdów (łamiące się gałęzie, konary drzew).",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Odwołane kursy.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Połamane gałęzie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Powalone drzewa.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Szkody w parkach, ogrodach i lasach.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Szkody w uprawach (wyleganie).",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Spróbuj ograniczyć przebywanie na zewnątrz.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Aktywny wypoczynek na świeżym powietrzu przełóż raczej na inny termin.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zamknij szczelnie okna i drzwi.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Zbierz luźne rzeczy z podwórka lub balkonu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Postaraj się, aby Twój telefon komórkowy i banki energii były naładowane.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zabezpiecz swój dobytek.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Poruszaj się ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Unikaj parkowania pod drzewami.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o zmianie środka transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu podróży.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu prac polowych.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Pomyśl o zabezpieczeniu upraw.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ]
+  }
+ },
+ "zawieje_zamiecie": {
+  "2": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - łamiące się gałęzie, konary drzew.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Uszkodzenia budynków - zerwane dachy, elewacje (raczej nieliczne).",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - raczej krótkotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się pieszo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Nieprzejezdne drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Odwołane kursy.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Połamane gałęzie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Spróbuj ograniczyć przebywanie na zewnątrz.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Poruszaj się ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Unikaj parkowania pod drzewami.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o zmianie środka transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu podróży.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    }
+   ]
+  },
+  "1": {
+   "skutki": [
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się pieszo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Nieprzejezdne drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Poruszaj się ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  }
+ },
+ "silny_mroz": {
+  "1": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - odmrożenia i wychłodzenie organizmu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - raczej krótkotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Ubierz się warstwowo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Chroń zwierzęta.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  },
+  "2": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - odmrożenia i wychłodzenie organizmu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - raczej krótkotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Spróbuj ograniczyć przebywanie na zewnątrz.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Ubierz się warstwowo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Staraj się oszczędzać wodę i energię elektryczną.",
+     "otoczenie": "zawsze",
+     "zakres": "energetyka"
+    },
+    {
+     "tresc": "Chroń zwierzęta.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Upewnij się, że instalacja grzewcza działa prawidłowo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  },
+  "3": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - odmrożenia i wychłodzenie organizmu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - także długotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Uszkodzenia nawierzchni dróg - pęknięcia.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Odwołane kursy.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Spróbuj ograniczyć przebywanie na zewnątrz.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Ubierz się warstwowo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Staraj się oszczędzać wodę i energię elektryczną.",
+     "otoczenie": "zawsze",
+     "zakres": "energetyka"
+    },
+    {
+     "tresc": "Chroń zwierzęta.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Upewnij się, że instalacja grzewcza działa prawidłowo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  }
+ },
+ "upal": {
+  "1": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - przegrzanie i odwodnienie organizmu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - raczej krótkotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Pamiętaj o nawodnieniu i okryciu głowy.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Chroń zwierzęta.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  },
+  "2": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - przegrzanie i odwodnienie organizmu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - raczej krótkotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Spróbuj ograniczyć przebywanie na zewnątrz.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pamiętaj o nawodnieniu i okryciu głowy.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Staraj się oszczędzać wodę i energię elektryczną.",
+     "otoczenie": "zawsze",
+     "zakres": "energetyka"
+    },
+    {
+     "tresc": "Chroń zwierzęta.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  },
+  "3": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - przegrzanie i odwodnienie organizmu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - także długotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Uszkodzenia nawierzchni dróg - topienie się.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Odwołane kursy.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Spróbuj ograniczyć przebywanie na zewnątrz.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pamiętaj o nawodnieniu i okryciu głowy.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Staraj się oszczędzać wodę i energię elektryczną.",
+     "otoczenie": "zawsze",
+     "zakres": "energetyka"
+    },
+    {
+     "tresc": "Chroń zwierzęta.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu prac polowych.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ]
+  }
+ },
+ "burze": {
+  "1": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - wyładowania atmosferyczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Uszkodzenia budynków - zerwane dachy, elewacje (raczej nieliczne).",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Pożary budynków wskutek uderzeń wyładowań atmosferycznych - raczej nieliczne.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Podtopienia (piwnice, garaże) - raczej nieliczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - raczej krótkotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Podtopione drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Uszkodzenia lub zniszczenia pojazdów (łamiące się gałęzie, konary drzew, gradobicia).",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Połamane gałęzie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Szkody w parkach, ogrodach i lasach.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Szkody w uprawach (wyleganie).",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Szkody w uprawach (gradobicia).",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Będąc na zewnątrz bądź czujny i obserwuj pogodę.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zamknij szczelnie okna i drzwi.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Odłącz urządzenia z gniazdek elektrycznych.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zbierz luźne rzeczy z podwórka lub balkonu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Unikaj parkowania pod drzewami.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  },
+  "2": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - wyładowania atmosferyczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Uszkodzenia budynków - zerwane dachy, elewacje (raczej nieliczne).",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Uszkodzenia budynków - zerwane dachy, elewacje (także liczne i masowe).",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Pożary budynków wskutek uderzeń wyładowań atmosferycznych - także liczne.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Podtopienia (piwnice, garaże) - raczej nieliczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Podtopienia (piwnice, garaże) - także liczne i masowe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - także długotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Podtopione drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Nieprzejezdne drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Uszkodzenia lub zniszczenia pojazdów (łamiące się gałęzie, konary drzew, gradobicia).",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Odwołane kursy.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Połamane gałęzie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Powalone drzewa.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Szkody w parkach, ogrodach i lasach.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Podtopienia w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Szkody w uprawach (wyleganie).",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Szkody w uprawach (gradobicia).",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Spróbuj ograniczyć przebywanie na zewnątrz.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Aktywny wypoczynek na świeżym powietrzu przełóż raczej na inny termin.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zamknij szczelnie okna i drzwi.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Odłącz urządzenia z gniazdek elektrycznych.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zbierz luźne rzeczy z podwórka lub balkonu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zabezpiecz swój dobytek.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Unikaj parkowania pod drzewami.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu prac polowych.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Pomyśl o zabezpieczeniu upraw.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ]
+  },
+  "3": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - wyładowania atmosferyczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Uszkodzenia budynków - zerwane dachy, elewacje (także liczne i masowe).",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Zniszczenia budynków - zawalone stropy, ściany nośne.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Pożary budynków wskutek uderzeń wyładowań atmosferycznych - także liczne.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Podtopienia (piwnice, garaże) - także liczne i masowe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Podtopienia (parter, piwnice, garaże).",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - także długotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Podtopione drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Nieprzejezdne drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Zniszczone drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Uszkodzenia lub zniszczenia pojazdów (łamiące się gałęzie, konary drzew, gradobicia).",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Odwołane kursy.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Połamane gałęzie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Powalone drzewa.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Szkody w parkach, ogrodach i lasach.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Podtopienia w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Zalania w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Szkody w uprawach (wyleganie).",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Szkody w uprawach (gradobicia).",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Spróbuj ograniczyć przebywanie na zewnątrz.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Aktywny wypoczynek na świeżym powietrzu przełóż raczej na inny termin.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Śledź ostrzeżenia hydrologiczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zamknij szczelnie okna i drzwi.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Odłącz urządzenia z gniazdek elektrycznych.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zbierz luźne rzeczy z podwórka lub balkonu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Postaraj się, aby Twój telefon komórkowy i banki energii były naładowane.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zabezpiecz swój dobytek.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Unikaj parkowania pod drzewami.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu podróży.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu prac polowych.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Pomyśl o zabezpieczeniu upraw.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ]
+  }
+ },
+ "silny_deszcz_z_burzami": {
+  "1": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - wyładowania atmosferyczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Uszkodzenia budynków - zerwane dachy, elewacje (raczej nieliczne).",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Uszkodzenia budynków - zerwane dachy, elewacje (także liczne i masowe).",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Zniszczenia budynków - zawalone stropy, ściany nośne.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Pożary budynków wskutek uderzeń wyładowań atmosferycznych - raczej nieliczne.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Podtopienia (piwnice, garaże) - raczej nieliczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - raczej krótkotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - także długotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Podtopione drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Uszkodzenia lub zniszczenia pojazdów (łamiące się gałęzie, konary drzew).",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Połamane gałęzie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Szkody w parkach, ogrodach i lasach.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Podtopienia w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Szkody w uprawach (wyleganie).",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Szkody w uprawach (gradobicia).",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Będąc na zewnątrz bądź czujny i obserwuj pogodę.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zamknij szczelnie okna i drzwi.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Odłącz urządzenia z gniazdek elektrycznych.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zbierz luźne rzeczy z podwórka lub balkonu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Unikaj parkowania pod drzewami.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  },
+  "2": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - wyładowania atmosferyczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Uszkodzenia budynków - zerwane dachy, elewacje (raczej nieliczne).",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Uszkodzenia budynków - zerwane dachy, elewacje (także liczne i masowe).",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Zniszczenia budynków - zawalone stropy, ściany nośne.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Pożary budynków wskutek uderzeń wyładowań atmosferycznych - raczej nieliczne.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Podtopienia (piwnice, garaże) - także liczne i masowe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - raczej krótkotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - także długotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Podtopione drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Nieprzejezdne drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Uszkodzenia lub zniszczenia pojazdów (łamiące się gałęzie, konary drzew).",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Połamane gałęzie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Powalone drzewa.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Szkody w parkach, ogrodach i lasach.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Podtopienia w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Szkody w uprawach (wyleganie).",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Szkody w uprawach (gradobicia).",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Spróbuj ograniczyć przebywanie na zewnątrz.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Aktywny wypoczynek na świeżym powietrzu przełóż raczej na inny termin.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Śledź ostrzeżenia hydrologiczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zamknij szczelnie okna i drzwi.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Odłącz urządzenia z gniazdek elektrycznych.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zbierz luźne rzeczy z podwórka lub balkonu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zabezpiecz swój dobytek.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Unikaj parkowania pod drzewami.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu prac polowych.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Pomyśl o zabezpieczeniu upraw.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ]
+  },
+  "3": {
+   "skutki": [
+    {
+     "tresc": "Zagrożenie zdrowia lub życia - wyładowania atmosferyczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Uszkodzenia budynków - zerwane dachy, elewacje (raczej nieliczne).",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Uszkodzenia budynków - zerwane dachy, elewacje (także liczne i masowe).",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Zniszczenia budynków - zawalone stropy, ściany nośne.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Pożary budynków wskutek uderzeń wyładowań atmosferycznych - raczej nieliczne.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Podtopienia (parter, piwnice, garaże).",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - raczej krótkotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - także długotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Podtopione drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Nieprzejezdne drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Zniszczone drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Uszkodzenia lub zniszczenia pojazdów (łamiące się gałęzie, konary drzew).",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Odwołane kursy.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Połamane gałęzie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Powalone drzewa.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Szkody w parkach, ogrodach i lasach.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Podtopienia w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Zalania w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Szkody w uprawach (wyleganie).",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Szkody w uprawach (gradobicia).",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Spróbuj ograniczyć przebywanie na zewnątrz.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Aktywny wypoczynek na świeżym powietrzu przełóż raczej na inny termin.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Śledź ostrzeżenia hydrologiczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zamknij szczelnie okna i drzwi.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Odłącz urządzenia z gniazdek elektrycznych.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zbierz luźne rzeczy z podwórka lub balkonu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Postaraj się, aby Twój telefon komórkowy i banki energii były naładowane.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zabezpiecz swój dobytek.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Unikaj parkowania pod drzewami.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o zmianie środka transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu podróży.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu prac polowych.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Pomyśl o zabezpieczeniu upraw.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ]
+  }
+ },
+ "intensywne_opady_deszczu": {
+  "1": {
+   "skutki": [
+    {
+     "tresc": "Podtopienia (piwnice, garaże) - raczej nieliczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Podtopione drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Podtopienia w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  },
+  "2": {
+   "skutki": [
+    {
+     "tresc": "Podtopienia (piwnice, garaże) - także liczne i masowe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Podtopione drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Nieprzejezdne drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Podtopienia w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Śledź ostrzeżenia hydrologiczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zabezpiecz swój dobytek.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu prac polowych.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Pomyśl o zabezpieczeniu upraw.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ]
+  },
+  "3": {
+   "skutki": [
+    {
+     "tresc": "Podtopienia (parter, piwnice, garaże).",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Podtopione drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Nieprzejezdne drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Zniszczone drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Odwołane kursy.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Podtopienia w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Zalania w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Śledź ostrzeżenia hydrologiczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Postaraj się, aby Twój telefon komórkowy i banki energii były naładowane.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zabezpiecz swój dobytek.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o zmianie środka transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu podróży.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu prac polowych.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Pomyśl o zabezpieczeniu upraw.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ]
+  }
+ },
+ "roztopy": {
+  "1": {
+   "skutki": [
+    {
+     "tresc": "Podtopienia (piwnice, garaże) - raczej nieliczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Podtopione drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Podtopienia w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  },
+  "2": {
+   "skutki": [
+    {
+     "tresc": "Podtopienia (piwnice, garaże) - także liczne i masowe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Podtopione drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Nieprzejezdne drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Podtopienia w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Zalania w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Śledź ostrzeżenia hydrologiczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zabezpiecz swój dobytek.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  },
+  "3": {
+   "skutki": [
+    {
+     "tresc": "Podtopienia (parter, piwnice, garaże).",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Podtopione drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Nieprzejezdne drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Zniszczone drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Odwołane kursy.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Podtopienia w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    },
+    {
+     "tresc": "Zalania w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Śledź ostrzeżenia hydrologiczne.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Postaraj się, aby Twój telefon komórkowy i banki energii były naładowane.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Zabezpiecz swój dobytek.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o zmianie środka transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu podróży.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    }
+   ]
+  }
+ },
+ "intensywne_opady_sniegu": {
+  "1": {
+   "skutki": [
+    {
+     "tresc": "Uszkodzenia budynków - przeciążenia pod naporem śniegu.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - raczej krótkotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się pieszo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Poruszaj się ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  },
+  "2": {
+   "skutki": [
+    {
+     "tresc": "Uszkodzenia budynków - przeciążenia pod naporem śniegu.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - raczej krótkotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - także długotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się pieszo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Nieprzejezdne drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Odwołane kursy.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Połamane gałęzie od ciężaru mokrego śniegu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Powalone drzewa.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Szkody w parkach, ogrodach i lasach.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Poruszaj się ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o zmianie środka transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  },
+  "3": {
+   "skutki": [
+    {
+     "tresc": "Uszkodzenia budynków - przeciążenia pod naporem śniegu.",
+     "otoczenie": "zawsze",
+     "zakres": "budownictwo"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - raczej krótkotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Przerwy w dostępie do mediów - także długotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się pieszo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Nieprzejezdne drogi.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Odwołane kursy.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Połamane gałęzie od ciężaru mokrego śniegu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Powalone drzewa.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Szkody w parkach, ogrodach i lasach.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Postaraj się, aby Twój telefon komórkowy i banki energii były naładowane.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Poruszaj się ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o zmianie środka transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Rozważ zmianę terminu podróży.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    }
+   ]
+  }
+ },
+ "mgla_szadz": {
+  "1": {
+   "skutki": [
+    {
+     "tresc": "Przerwy w dostępie do mediów - raczej krótkotrwałe.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Połamane gałęzie od narastającej warstwy szadzi.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Poruszaj się ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o zmianie środka transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  }
+ },
+ "opady_sniegu": {
+  "1": {
+   "skutki": [
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Trudności w poruszaniu się pieszo.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Poruszaj się ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  }
+ },
+ "gesta_mgla": {
+  "1": {
+   "skutki": [
+    {
+     "tresc": "Trudności w poruszaniu się samochodem.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    },
+    {
+     "tresc": "Opóźnienia środków transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Odwołane kursy.",
+     "otoczenie": "zawsze",
+     "zakres": "transport"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Jedź ostrożnie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Weź pod uwagę dłuższy czas dojazdu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o alternatywnej trasie.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    },
+    {
+     "tresc": "Pomyśl o zmianie środka transportu.",
+     "otoczenie": "zawsze",
+     "zakres": "ogolny"
+    }
+   ]
+  }
+ },
+ "przymrozki": {
+  "1": {
+   "skutki": [
+    {
+     "tresc": "Szkody w uprawach.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ],
+   "zalecenia": [
+    {
+     "tresc": "Pomyśl o zabezpieczeniu upraw.",
+     "otoczenie": "zawsze",
+     "zakres": "rolnictwo"
+    }
+   ]
+  }
+ }
+}

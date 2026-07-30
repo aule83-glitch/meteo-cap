@@ -22,7 +22,9 @@ from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
-CONFIG_FILE = "/data/delivery_config.json"
+import os as _os
+_DATA_DIR = _os.environ.get("OSMET_DATA_DIR", "/data")
+CONFIG_FILE = _os.path.join(_DATA_DIR, "delivery_config.json")
 
 DEFAULT_CONFIG = {
     "ftp": [],      # lista serwerów FTP
@@ -357,7 +359,7 @@ def dispatch_all_async(cap_xml: str, filename: str, warning: dict) -> None:
 
 
 def _append_delivery_log(entry: dict) -> None:
-    log_file = "/data/delivery_log.json"
+    log_file = _os.path.join(_DATA_DIR, "delivery_log.json")
     try:
         if os.path.exists(log_file):
             with open(log_file, encoding="utf-8") as f:

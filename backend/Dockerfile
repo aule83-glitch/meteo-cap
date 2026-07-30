@@ -7,11 +7,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Kod aplikacji — ta warstwa NIE jest cache'owana (zmienia się często)
-COPY app/ ./app/
+COPY backend/app/ ./app/
+
+# VERSION — jedno źródło numeru wersji (czyta je backend i pokazuje UI)
+COPY VERSION ./VERSION
 
 RUN mkdir -p /data
 

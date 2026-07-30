@@ -304,6 +304,7 @@ def generate_warning_pdf(
         "course":           "Course:" if EN else "Przebieg:",
         "impacts":          "Expected impacts:" if EN else "Spodziewane skutki:",
         "instruction":      "Recommendations — what to do:" if EN else "Zalecenia — co robić:",
+        "likelihood":       "Likelihood:" if EN else "Prawdopodobieństwo:",
         "no_warnings":      "No active warnings" if EN else "Brak aktywnych ostrzeżeń",
         "page":             "Page" if EN else "Strona",
         "of":               "of" if EN else "z",
@@ -501,12 +502,25 @@ def generate_warning_pdf(
             block_elements.append(hdr_table)
             block_elements.append(Spacer(1, 0.15*cm))
 
+            # Tekst prawdopodobieństwa (likelihood -> CAP certainty)
+            _lk = (w.get("likelihood") or "likely").lower()
+            _lk_pl = {"observed": "Obserwowane — zjawisko trwa",
+                      "likely":   "Prawdopodobne (>50%)",
+                      "possible": "Możliwe (≤50%)"}
+            _lk_en = {"observed": "Observed — ongoing",
+                      "likely":   "Likely (>50%)",
+                      "possible": "Possible (≤50%)"}
+            _lk_cap = {"observed": "Observed", "likely": "Likely", "possible": "Possible"}
+            _lk_txt = (_lk_en if EN else _lk_pl).get(_lk, _lk) + \
+                      f"  ·  CAP certainty: {_lk_cap.get(_lk, 'Likely')}"
+
             # Dane szczegółowe
             detail_rows = [
                 ["Identifier:" if EN else "Identyfikator:", w.get("id","—")[:36]],
                 ["Message type:" if EN else "Typ komunikatu:", w.get("msg_type","Alert")],
                 [L["valid_from"], _fmt_dt(w.get("onset",""))],
                 [L["valid_to"], _fmt_dt(w.get("expires",""))],
+                [L["likelihood"], _lk_txt],
                 ["Coverage:" if EN else "Zasięg obszarowy:", area_desc],
             ]
             detail_table = Table(
@@ -638,7 +652,14 @@ def generate_warning_pdf(
                             line.strip(), style_body))
 
             block_elements.append(Spacer(1, 0.4*cm))
-            story.append(KeepTogether(block_elements))
+            # Razem trzymamy tylko nagłówek bloku + pierwszą tabelę szczegółów;
+            # reszta (mapa, powiaty, teksty) może płynąć przez strony.
+            # KeepTogether CAŁEGO bloku spychał go na nową stronę i zostawiał
+            # pierwszą stronę prawie pustą (sama tabelka podsumowania).
+            _head_cnt = min(3, len(block_elements))
+            story.append(KeepTogether(block_elements[:_head_cnt]))
+            for _el in block_elements[_head_cnt:]:
+                story.append(_el)
 
     # === STOPKA ===
     story.append(Spacer(1, 0.5*cm))

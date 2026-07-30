@@ -1,0 +1,44 @@
+[Unit]
+Description=IMGW-OSMET backend (FastAPI/uvicorn)
+Documentation=file:///opt/osmet/deploy/INSTALL_LINUX.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=osmet
+Group=osmet
+
+# WAŻNE: katalogiem roboczym musi być backend/ — pakiet aplikacji nazywa się „app"
+# i importy w kodzie są zakotwiczone jako app.* (np. from app.services...).
+# Plik VERSION leży poziom wyżej (/opt/osmet/VERSION) i backend go stamtąd czyta.
+WorkingDirectory=/opt/osmet/backend
+
+# Katalog danych — baza ostrzeżeń, biblioteka skutków, konfiguracja dostawy.
+# NIE trzymaj go w katalogu z kodem: aktualizacja kodu nie może dotknąć danych.
+Environment="OSMET_DATA_DIR=/var/lib/osmet"
+Environment="PYTHONUNBUFFERED=1"
+
+# Autoryzacja API (opcjonalna). Pusta wartość = wyłączona.
+# W sieci zakładowej rozważ ustawienie klucza:
+Environment="METEOCAP_API_KEY="
+
+# CORS: przy wdrożeniu za nginx front i API są na tym samym origin,
+# więc CORS nie jest potrzebny. Zostaw domyślne albo podaj konkretne adresy.
+# Environment="OSMET_CORS_ORIGINS=https://osmet.firma.local"
+
+# Nasłuch TYLKO na loopback — na świat wystawia nginx.
+ExecStart=/opt/osmet/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+Restart=on-failure
+RestartSec=5s
+
+# Utwardzenie (backend nie potrzebuje niczego poza swoim katalogiem danych)
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/osmet
+
+[Install]
+WantedBy=multi-user.target

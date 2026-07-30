@@ -543,6 +543,7 @@ def _parse_entry(entry, ns: dict, country_code: str, country_info: dict) -> Opti
     onset      = find_text(entry, 'onset', 'effective')
     expires    = find_text(entry, 'expires')
     severity   = find_text(entry, 'severity')
+    sent       = find_text(entry, 'sent', 'published', 'updated')   # do rozstrzygania wersji
     urgency    = find_text(entry, 'urgency')
     certainty  = find_text(entry, 'certainty')
     headline   = find_text(entry, 'headline', 'title')
@@ -729,11 +730,66 @@ def _parse_entry(entry, ns: dict, country_code: str, country_info: dict) -> Opti
         "onset":       onset or "",
         "expires":     expires or "",
         "severity":    severity or "",
+        "sent":        sent or "",
         "polygon":     polygon,
         "emma_codes":  emma_codes,                  # kody EMMA_ID z <geocode>
         "geocode_geometries": geocode_geometries,   # geometrie z pliku lookup (PL)
         "counties":    [],  # MeteoAlarm nie ma TERYT
     }
+
+
+def _parse_dt(v):
+    """Czas z feedu → datetime UTC (albo None)."""
+    if not v:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+def _dedupe_versions(warnings: list) -> list:
+    """MeteoAlarm publikuje kolejne WERSJE ostrzeżenia jako osobne wpisy.
+    Serwisy aktualizujące często (DWD) przy każdej wersji PRZESUWAJĄ okno,
+    więc porównanie okien na równość nie wystarcza — do niedawna dla jednego
+    powiatu wisiało obok siebie kilka wariantów tego samego ostrzeżenia
+    (np. burze St.2 14:00–20:00 i burze St.2 18:00–23:00).
+
+    Zasada: w obrębie (kraj, region, zjawisko) wpis jest odrzucany, jeśli jego
+    okno NACHODZI na okno wcześniej przyjętego, nowszego wpisu.
+    Okna rozłączne zostają — to sekwencja, nie duplikat.
+    """
+    def sent_key(w):
+        dt = _parse_dt(w.get("sent"))
+        return dt.timestamp() if dt else 0.0
+
+    # najświeższe najpierw — one mają pierwszeństwo
+    ordered = sorted(warnings, key=lambda w: (sent_key(w), w.get("level", 0)), reverse=True)
+    accepted = []
+    for w in ordered:
+        regions = tuple(sorted(w.get("emma_codes") or [])) or (w.get("area_desc", ""),)
+        key = (w.get("country"), regions, w.get("phenomenon"))
+        wo, we = _parse_dt(w.get("onset")), _parse_dt(w.get("expires"))
+        clash = False
+        for a in accepted:
+            a_regions = tuple(sorted(a.get("emma_codes") or [])) or (a.get("area_desc", ""),)
+            if (a.get("country"), a_regions, a.get("phenomenon")) != key:
+                continue
+            ao, ae = _parse_dt(a.get("onset")), _parse_dt(a.get("expires"))
+            # brak dat po którejkolwiek stronie → traktuj jak ten sam byt
+            if wo is None or we is None or ao is None or ae is None:
+                clash = True
+                break
+            if wo < ae and ao < we:      # nachodzą w czasie
+                clash = True
+                break
+        if not clash:
+            accepted.append(w)
+
+    # przywróć porządek chronologiczny (czytelniejszy w liście)
+    accepted.sort(key=lambda w: (str(w.get("onset") or ""), -(w.get("level") or 0)))
+    return accepted
 
 
 def fetch_country_warnings(country_code: str, timeout: int = 8) -> list:
@@ -767,6 +823,8 @@ def fetch_country_warnings(country_code: str, timeout: int = 8) -> list:
                 w for w in warnings
                 if any(f.lower() in (w.get("area_desc") or "").lower() for f in area_filter)
             ]
+
+        warnings = _dedupe_versions(warnings)
 
         with _cache_lock:
             _cache[country_code] = {'data': warnings, 'ts': time.time()}
